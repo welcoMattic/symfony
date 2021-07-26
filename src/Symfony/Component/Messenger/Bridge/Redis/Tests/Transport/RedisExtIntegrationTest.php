@@ -44,21 +44,33 @@ class RedisExtIntegrationTest extends TestCase
     public function testConnectionSendAndGet()
     {
         $this->connection->add('{"message": "Hi"}', ['type' => DummyMessage::class]);
-        $encoded = $this->connection->get();
-        $this->assertEquals('{"message": "Hi"}', $encoded['body']);
-        $this->assertEquals(['type' => DummyMessage::class], $encoded['headers']);
+        $message = $this->connection->get();
+        $this->assertEquals([
+            'message' => json_encode([
+                'body' => '{"message": "Hi"}',
+                'headers' => ['type' => DummyMessage::class],
+            ]),
+        ], $message['data']);
     }
 
     public function testGetTheFirstAvailableMessage()
     {
         $this->connection->add('{"message": "Hi1"}', ['type' => DummyMessage::class]);
         $this->connection->add('{"message": "Hi2"}', ['type' => DummyMessage::class]);
-        $encoded = $this->connection->get();
-        $this->assertEquals('{"message": "Hi1"}', $encoded['body']);
-        $this->assertEquals(['type' => DummyMessage::class], $encoded['headers']);
-        $encoded = $this->connection->get();
-        $this->assertEquals('{"message": "Hi2"}', $encoded['body']);
-        $this->assertEquals(['type' => DummyMessage::class], $encoded['headers']);
+        $message = $this->connection->get();
+        $this->assertEquals([
+            'message' => json_encode([
+                'body' => '{"message": "Hi1"}',
+                'headers' => ['type' => DummyMessage::class],
+            ]),
+        ], $message['data']);
+        $message = $this->connection->get();
+        $this->assertEquals([
+            'message' => json_encode([
+                'body' => '{"message": "Hi2"}',
+                'headers' => ['type' => DummyMessage::class],
+            ]),
+        ], $message['data']);
     }
 
     public function testConnectionSendWithSameContent()
@@ -69,24 +81,36 @@ class RedisExtIntegrationTest extends TestCase
         $this->connection->add($body, $headers);
         $this->connection->add($body, $headers);
 
-        $encoded = $this->connection->get();
-        $this->assertEquals($body, $encoded['body']);
-        $this->assertEquals($headers, $encoded['headers']);
+        $message = $this->connection->get();
+        $this->assertEquals([
+            'message' => json_encode([
+                'body' => $body,
+                'headers' => $headers,
+            ]),
+        ], $message['data']);
 
-        $encoded = $this->connection->get();
-        $this->assertEquals($body, $encoded['body']);
-        $this->assertEquals($headers, $encoded['headers']);
+        $message = $this->connection->get();
+        $this->assertEquals([
+            'message' => json_encode([
+                'body' => $body,
+                'headers' => $headers,
+            ]),
+        ], $message['data']);
     }
 
     public function testConnectionSendAndGetDelayed()
     {
         $this->connection->add('{"message": "Hi"}', ['type' => DummyMessage::class], 500);
-        $encoded = $this->connection->get();
-        $this->assertNull($encoded);
+        $message = $this->connection->get();
+        $this->assertNull($message);
         sleep(2);
-        $encoded = $this->connection->get();
-        $this->assertEquals('{"message": "Hi"}', $encoded['body']);
-        $this->assertEquals(['type' => DummyMessage::class], $encoded['headers']);
+        $message = $this->connection->get();
+        $this->assertEquals([
+            'message' => json_encode([
+                'body' => '{"message": "Hi"}',
+                'headers' => ['type' => DummyMessage::class],
+            ]),
+        ], $message['data']);
     }
 
     public function testConnectionSendDelayedMessagesWithSameContent()
@@ -97,13 +121,21 @@ class RedisExtIntegrationTest extends TestCase
         $this->connection->add($body, $headers, 500);
         $this->connection->add($body, $headers, 500);
         sleep(2);
-        $encoded = $this->connection->get();
-        $this->assertEquals($body, $encoded['body']);
-        $this->assertEquals($headers, $encoded['headers']);
+        $message = $this->connection->get();
+        $this->assertEquals([
+            'message' => json_encode([
+                'body' => $body,
+                'headers' => $headers,
+            ]),
+        ], $message['data']);
 
-        $encoded = $this->connection->get();
-        $this->assertEquals($body, $encoded['body']);
-        $this->assertEquals($headers, $encoded['headers']);
+        $message = $this->connection->get();
+        $this->assertEquals([
+            'message' => json_encode([
+                'body' => $body,
+                'headers' => $headers,
+            ]),
+        ], $message['data']);
     }
 
     public function testConnectionBelowRedeliverTimeout()
@@ -161,16 +193,24 @@ class RedisExtIntegrationTest extends TestCase
         );
 
         // Queue will return the pending message first because redeliver_timeout = 0
-        $encoded = $connection->get();
-        $this->assertEquals($body1, $encoded['body']);
-        $this->assertEquals($headers, $encoded['headers']);
-        $connection->ack($encoded['id']);
+        $message = $connection->get();
+        $this->assertEquals([
+            'message' => json_encode([
+                'body' => $body1,
+                'headers' => $headers,
+            ]),
+        ], $message['data']);
+        $connection->ack($message['id']);
 
         // Queue will return the second message
-        $encoded = $connection->get();
-        $this->assertEquals($body2, $encoded['body']);
-        $this->assertEquals($headers, $encoded['headers']);
-        $connection->ack($encoded['id']);
+        $message = $connection->get();
+        $this->assertEquals([
+            'message' => json_encode([
+                'body' => $body2,
+                'headers' => $headers,
+            ]),
+        ], $message['data']);
+        $connection->ack($message['id']);
     }
 
     private function getConnectionGroup(Connection $connection): string

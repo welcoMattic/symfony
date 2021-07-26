@@ -292,7 +292,17 @@ class ConnectionTest extends TestCase
             ->willReturn(['queue' => [['message' => '{"body":"1","headers":[]}']]]);
 
         $connection = Connection::fromDsn('redis://localhost/queue', [], $redis);
-        $connection->get();
+        $message = $connection->get();
+
+        $this->assertSame([
+            'id' => 0,
+            'data' => [
+                'message' => json_encode([
+                    'body' => '1',
+                    'headers' => [],
+                ]),
+            ],
+        ], $message);
     }
 
     public function testClaimAbandonedMessageWithRaceCondition()
@@ -479,7 +489,12 @@ class ConnectionTest extends TestCase
 
         $connection->add('1', []);
         $this->assertNotEmpty($message = $connection->get());
-        $this->assertSame('1', $message['body']);
+        $this->assertSame([
+            'message' => json_encode([
+                'body' => '1',
+                'headers' => [],
+            ]),
+        ], $message['data']);
         $connection->reject($message['id']);
         $redis->del('messenger-lazy');
     }
@@ -495,7 +510,12 @@ class ConnectionTest extends TestCase
 
         $connection->add('1', []);
         $this->assertNotEmpty($message = $connection->get());
-        $this->assertSame('1', $message['body']);
+        $this->assertSame([
+            'message' => json_encode([
+                'body' => '1',
+                'headers' => [],
+            ]),
+        ], $message['data']);
         $connection->reject($message['id']);
         $connection->cleanup();
     }
