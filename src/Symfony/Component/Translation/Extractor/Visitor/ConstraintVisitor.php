@@ -13,6 +13,7 @@ namespace Symfony\Component\Translation\Extractor\Visitor;
 
 use PhpParser\Node;
 use PhpParser\NodeVisitor;
+use Symfony\Component\Translation\Extractor\PhpAstExtractor;
 
 /**
  * @author Mathieu Santostefano <msantostefano@protonmail.com>
@@ -21,7 +22,6 @@ use PhpParser\NodeVisitor;
  */
 final class ConstraintVisitor extends AbstractVisitor implements NodeVisitor
 {
-    private const CONSTRAINT_VALIDATION_MESSAGE_PATTERN = '/[a-zA-Z]*message/i';
 
     public function __construct(
         private readonly array $constraintClassNames = []
@@ -65,7 +65,7 @@ final class ConstraintVisitor extends AbstractVisitor implements NodeVisitor
         }
 
         if ($this->hasNodeNamedArguments($node)) {
-            $messages = $this->getStringArguments($node, self::CONSTRAINT_VALIDATION_MESSAGE_PATTERN, true);
+            $messages = $this->getStringArguments($node, PhpAstExtractor::CONSTRAINT_VALIDATION_MESSAGE_REGEX, true);
         } else {
             if (!$arg->value instanceof Node\Expr\Array_) {
                 // There is no way to guess which argument is a message to be translated.
@@ -81,7 +81,7 @@ final class ConstraintVisitor extends AbstractVisitor implements NodeVisitor
                     continue;
                 }
 
-                if (!preg_match(self::CONSTRAINT_VALIDATION_MESSAGE_PATTERN, $item->key->value ?? '')) {
+                if (!preg_match(PhpAstExtractor::CONSTRAINT_VALIDATION_MESSAGE_REGEX, $item->key->value ?? '')) {
                     continue;
                 }
 

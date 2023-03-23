@@ -199,6 +199,11 @@ EOF;
             if (\in_array($fileInfo->getBasename(), ['translatable.html.php', 'translatable-fqn.html.php', 'translatable-short.html.php', 'translation.html.php', 'validator-constraints.php'], true)) {
                 $phpFiles[] = $fileInfo->getPathname();
             }
+            if ($fileInfo->getBasename() === 'file-without-any-translation.php') {
+                for ($i = 0; $i < 100_000; $i++) {
+                    $phpFiles[] = $fileInfo->getPathname();
+                }
+            }
             $splFiles[] = $fileInfo->getFileInfo();
         }
 

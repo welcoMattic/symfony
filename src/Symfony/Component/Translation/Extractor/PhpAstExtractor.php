@@ -26,6 +26,11 @@ use Symfony\Component\Translation\MessageCatalogue;
  */
 final class PhpAstExtractor extends AbstractFileExtractor implements ExtractorInterface
 {
+    public const T_FUNCTION_REGEX = '/\\?t\(.*\)/i';
+    public const TRANS_METHOD_REGEX = '/->trans\(/i';
+    public const TRANSLATABLE_MESSAGE_REGEX = '/TranslatableMessage\(/i';
+    public const CONSTRAINT_VALIDATION_MESSAGE_REGEX = '/[a-zA-Z]*message/i';
+
     private Parser $parser;
 
     public function __construct(
@@ -64,7 +69,15 @@ final class PhpAstExtractor extends AbstractFileExtractor implements ExtractorIn
 
     protected function canBeExtracted(string $file): bool
     {
-        return 'php' === pathinfo($file, \PATHINFO_EXTENSION) && $this->isFile($file);
+        $content = file_get_contents($file);
+
+        return 'php' === pathinfo($file, \PATHINFO_EXTENSION)
+            && $this->isFile($file)
+            && (!!preg_match(self::T_FUNCTION_REGEX , $content)
+                || !!preg_match(self::TRANS_METHOD_REGEX , $content)
+                || !!preg_match(self::TRANSLATABLE_MESSAGE_REGEX , $content)
+                || !!preg_match(self::CONSTRAINT_VALIDATION_MESSAGE_REGEX , $content))
+        ;
     }
 
     protected function extractFromDirectory(array|string $resource): iterable|Finder
