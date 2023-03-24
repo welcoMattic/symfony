@@ -89,7 +89,7 @@ class LokaliseProviderTest extends ProviderTestCase
             $expectedQuery = [
                 'filter_keys' => '',
                 'filter_filenames' => 'messages.xliff',
-                'limit' => 5000,
+                'limit' => 500,
                 'page' => 1,
             ];
 
@@ -104,7 +104,7 @@ class LokaliseProviderTest extends ProviderTestCase
             $expectedQuery = [
                 'filter_keys' => '',
                 'filter_filenames' => 'validators.xliff',
-                'limit' => 5000,
+                'limit' => 500,
                 'page' => 1,
             ];
 
@@ -345,7 +345,7 @@ class LokaliseProviderTest extends ProviderTestCase
             $expectedQuery = [
                 'filter_keys' => '',
                 'filter_filenames' => 'messages.xliff',
-                'limit' => 5000,
+                'limit' => 500,
                 'page' => 1,
             ];
 
@@ -403,7 +403,7 @@ class LokaliseProviderTest extends ProviderTestCase
             $expectedQuery = [
                 'filter_keys' => '',
                 'filter_filenames' => 'messages.xliff',
-                'limit' => 5000,
+                'limit' => 500,
                 'page' => 1,
             ];
 
@@ -484,7 +484,7 @@ class LokaliseProviderTest extends ProviderTestCase
             $expectedQuery = [
                 'filter_keys' => '',
                 'filter_filenames' => 'messages.xliff',
-                'limit' => 5000,
+                'limit' => 500,
                 'page' => 1,
             ];
 
@@ -657,7 +657,7 @@ class LokaliseProviderTest extends ProviderTestCase
             $expectedQuery = [
                 'filter_keys' => 'a',
                 'filter_filenames' => 'messages.xliff',
-                'limit' => 5000,
+                'limit' => 500,
                 'page' => 1,
             ];
 
@@ -677,7 +677,7 @@ class LokaliseProviderTest extends ProviderTestCase
             $expectedQuery = [
                 'filter_keys' => 'post.num_comments',
                 'filter_filenames' => 'validators.xliff',
-                'limit' => 5000,
+                'limit' => 500,
                 'page' => 1,
             ];
 

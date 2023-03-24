@@ -30,7 +30,7 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  */
 final class LokaliseProvider implements ProviderInterface
 {
-    private const LOKALISE_GET_KEYS_LIMIT = 5000;
+    private const LOKALISE_GET_KEYS_LIMIT = 500;
 
     private $client;
     private $loader;
