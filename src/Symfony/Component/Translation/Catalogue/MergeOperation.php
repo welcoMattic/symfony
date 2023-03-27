@@ -30,14 +30,14 @@ class MergeOperation extends AbstractOperation
     protected function processDomain(string $domain)
     {
         $this->messages[$domain] = [
-            'all' => [],
-            'new' => [],
-            'obsolete' => [],
+            parent::ALL_BATCH => [],
+            parent::NEW_BATCH => [],
+            parent::OBSOLETE_BATCH => [],
         ];
         $intlDomain = $domain.MessageCatalogueInterface::INTL_DOMAIN_SUFFIX;
 
         foreach ($this->source->all($domain) as $id => $message) {
-            $this->messages[$domain]['all'][$id] = $message;
+            $this->messages[$domain][parent::ALL_BATCH][$id] = $message;
             $d = $this->source->defines($id, $intlDomain) ? $intlDomain : $domain;
             $this->result->add([$id => $message], $d);
             if (null !== $keyMetadata = $this->source->getMetadata($id, $d)) {
@@ -47,8 +47,8 @@ class MergeOperation extends AbstractOperation
 
         foreach ($this->target->all($domain) as $id => $message) {
             if (!$this->source->has($id, $domain)) {
-                $this->messages[$domain]['all'][$id] = $message;
-                $this->messages[$domain]['new'][$id] = $message;
+                $this->messages[$domain][parent::ALL_BATCH][$id] = $message;
+                $this->messages[$domain][parent::NEW_BATCH][$id] = $message;
                 $d = $this->target->defines($id, $intlDomain) ? $intlDomain : $domain;
                 $this->result->add([$id => $message], $d);
                 if (null !== $keyMetadata = $this->target->getMetadata($id, $d)) {
