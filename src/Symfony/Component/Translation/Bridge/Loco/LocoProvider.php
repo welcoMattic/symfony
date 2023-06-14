@@ -222,21 +222,26 @@ final class LocoProvider implements ProviderInterface
     {
         $responses = [];
 
-        foreach ($translations as $id => $message) {
-            $responses[$id] = $this->client->request('POST', sprintf('translations/%s/%s', rawurlencode($id), rawurlencode($locale)), [
-                'body' => $message,
-                'headers' => ['Content-Type' => 'text/plain'],
-            ]);
-        }
+        $chunks = array_chunk($translations, 150);
 
-        foreach ($responses as $id => $response) {
-            if (200 !== $statusCode = $response->getStatusCode()) {
-                $this->logger->notice(sprintf('Unable to add translation for key "%s" in locale "%s" to Loco: "%s".', $id, $locale, $response->getContent(false)));
+        foreach ($chunks as $translations) {
+            foreach ($translations as $id => $message) {
+                $responses[$id] = $this->client->request('POST', sprintf('translations/%s/%s', rawurlencode($id), rawurlencode($locale)), [
+                    'body' => $message,
+                    'headers' => ['Content-Type' => 'text/plain'],
+                ]);
+            }
 
-                if (500 <= $statusCode) {
-                    throw new ProviderException(sprintf('Unable to add translation for key "%s" in locale "%s" to Loco.', $id, $locale), $response);
+            foreach ($responses as $id => $response) {
+                if (200 !== $statusCode = $response->getStatusCode()) {
+                    $this->logger->notice(sprintf('Unable to add translation for key "%s" in locale "%s" to Loco: "%s".', $id, $locale, $response->getContent(false)));
+
+                    if (500 <= $statusCode) {
+                        throw new ProviderException(sprintf('Unable to add translation for key "%s" in locale "%s" to Loco.', $id, $locale), $response);
+                    }
                 }
             }
+            usleep(500000);
         }
     }
 
