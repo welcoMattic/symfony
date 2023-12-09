@@ -120,6 +120,7 @@ return static function (ContainerConfigurator $container) {
         ->set('console.command.cache_warmup', CacheWarmupCommand::class)
             ->args([
                 service('cache_warmer'),
+                tagged_locator('kernel.cache_warmer')
             ])
             ->tag('console.command')
 
