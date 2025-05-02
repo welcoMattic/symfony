@@ -38,14 +38,14 @@ final class FormTypeVisitor extends AbstractVisitor implements NodeVisitor
             return null;
         }
 
-        // Visit all array expressions to look for options array (containing explicit labels)
+        // Visit all array expressions to look for options array
         if ($node instanceof Node\Expr\Array_) {
-            $this->visitArray($node);
+            $this->visitOptionsArray($node);
         }
 
         // Visit all "add()" method calls to look for implicit labels
         if ($node instanceof Node\Expr\MethodCall) {
-            $this->visitMethodCall($node);
+            $this->visitAddMethodCall($node);
         }
 
         return null;
@@ -61,7 +61,7 @@ final class FormTypeVisitor extends AbstractVisitor implements NodeVisitor
         return null;
     }
 
-    private function visitMethodCall(Node\Expr\MethodCall $node): void
+    private function visitAddMethodCall(Node\Expr\MethodCall $node): void
     {
         if ('add' !== $node->name->name) {
             return;
@@ -76,15 +76,19 @@ final class FormTypeVisitor extends AbstractVisitor implements NodeVisitor
         }
     }
 
-    private function visitArray(Node\Expr\Array_ $node): void
+    private function visitOptionsArray(Node\Expr\Array_ $node): void
     {
+        $translatableOptions = ['label', 'placeholder', 'help'];
+
         foreach ($node->items as $item) {
-            if ($item->key instanceof Node\Scalar\String_ && 'label' === $item->key->value) {
-                // If the label is a non-empty string, add it to the messages
-                $stringValue = $this->getStringValue($item->value);
-                if (null !== $stringValue && '' !== $stringValue) {
-                    $this->addMessageToCatalogue($stringValue, 'messages', $item->getStartLine());
-                }
+            if (!$item->key instanceof Node\Scalar\String_ || !in_array($item->key->value, $translatableOptions, true)) {
+                continue;
+            }
+
+            // If the option is a non-empty string, add it to the messages
+            $stringValue = $this->getStringValue($item->value);
+            if (null !== $stringValue && '' !== $stringValue) {
+                $this->addMessageToCatalogue($stringValue, 'messages', $item->getStartLine());
             }
         }
     }

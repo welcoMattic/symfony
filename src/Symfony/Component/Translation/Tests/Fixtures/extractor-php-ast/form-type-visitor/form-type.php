@@ -13,52 +13,62 @@ class FooType extends AbstractType
     public function buildForm(FormBuilderInterface $builder, array $options)
     {
         $builder->add('foo1', null, [
-            'label' => 'label.foo1'
+            'label' => 'label.foo1',
+            'placeholder' => 'placeholder.foo1',
+            'help' => 'help.foo1',
         ]);
     }
 }
 
-class ExplicitLabelType extends AbstractType
+class ExtractionTestFormType extends AbstractType
 {
     public function buildForm(FormBuilderInterface $builder, array $options)
     {
         $var = "something";
         $builder->add('find1', null, [
-            'label' => 'label.find1'
+            'label' => 'label.find1',
         ]);
         $builder
             ->add('find2', null, array(
-                'label' => 'find2'
+                'label' => 'find2',
             ))
             ->add('field_longer_name3', null, [
-                'label' => 'FOUND3'
+                'label' => 'FOUND3',
             ])
             ->add('skip1', null, [
                 'label' => $var, // shouldn't be picked up
+                'placeholder' => $var, // shouldn't be picked up
+                'help' => $var, // shouldn't be picked up
                 'somethingelse' => 'skipthis',
             ])
             ->add('skip2', null, [
                 'label' => PHP_OS, // constant shouldn't work
+                'placeholder' => PHP_OS, // constant shouldn't work
+                'help' => PHP_OS, // constant shouldn't work
             ])
             ->add('skip3', null, [
-                'label' // value label, shouldn't be picked up
+                'label', // value label, shouldn't be picked up
             ])
             ->add('skip4', null, [
-                'label' => 'something '.$var // string+var concatenation, shouldn't be picked up
+                'label' => 'something '.$var, // string+var concatenation, shouldn't be picked up
+                'placeholder' => 'something '.$var, // string+var concatenation, shouldn't be picked up
+                'help' => 'something '.$var, // string+var concatenation, shouldn't be picked up
             ])
         ;
 
-        // add label in variable should be found
-        $opts = ['label'=>'label.find4'];
+        // add options in variable should be found
+        $opts = ['label'=>'label.find4','placeholder'=>'placeholder.find4','help'=>'help.find4'];
         $builder->add('find4', null, $opts);
 
-        // empty label should be skipped
-        $builder->add('skip5', null, ['label'=>'']);
+        // empty options should be skipped
+        $builder->add('skip5', null, ['label'=>'', 'placeholder'=>'', 'help'=>'']);
 
         // collection test
         $builder->add('find5', CollectionType::class, [
             'options' => [
                 'label' => 'label.find5',
+                'placeholder' => 'placeholder.find5',
+                'help' => 'help.find5',
             ],
         ]);
 
