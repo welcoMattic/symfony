@@ -36,11 +36,17 @@ class FormTypeVisitorTest extends AbstractVisitorTest
                     'bigger_find7' => 'prefixbigger_find7',
                     'camelFind8' => 'prefixcamelFind8',
                     'label.find9' => 'prefixlabel.find9',
+                    'placeholder.foo1' => 'prefixplaceholder.foo1',
+                    'help.foo1' => 'prefixhelp.foo1',
+                    'placeholder.find4' => 'prefixplaceholder.find4',
+                    'help.find4' => 'prefixhelp.find4',
+                    'placeholder.find5' => 'prefixplaceholder.find5',
+                    'help.find5' => 'prefixhelp.find5',
                 ],
             ],
             $catalogue->all(),
         );
 
-        $this->assertEquals(['sources' => [self::FIXTURES_FOLDER . 'form-type.php:27']], $catalogue->getMetadata('label.find1'));
+        $this->assertEquals(['sources' => [self::FIXTURES_FOLDER . 'form-type.php:29']], $catalogue->getMetadata('label.find1'));
     }
 }
