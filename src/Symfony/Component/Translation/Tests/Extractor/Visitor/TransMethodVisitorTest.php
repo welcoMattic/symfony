@@ -71,6 +71,9 @@ EOF;
                     'translatable-short-fqn '.$expectedNowdoc => 'prefixtranslatable-short-fqn '.$expectedNowdoc,
                     'translatable-short-fqn concatenated message with heredoc and nowdoc' => 'prefixtranslatable-short-fqn concatenated message with heredoc and nowdoc',
                     'translatable-short-fqn default domain' => 'prefixtranslatable-short-fqn default domain',
+                    'text_align.left.label' => 'prefixtext_align.left.label',
+                    'text_align.center.label' => 'prefixtext_align.center.label',
+                    'text_align.right.label' => 'prefixtext_align.right.label',
                 ],
                 'not_messages' => [
                     'other-domain-test-no-params-short-array' => 'prefixother-domain-test-no-params-short-array',
@@ -111,5 +114,7 @@ EOF;
 
         $this->assertEquals(['sources' => [self::FIXTURES_FOLDER . 'translatable-short-fqn.html.php:2']], $catalogue->getMetadata('translatable-short-fqn single-quoted key'));
         $this->assertEquals(['sources' => [self::FIXTURES_FOLDER . 'translatable-short-fqn.html.php:37']], $catalogue->getMetadata('translatable-short-fqn other-domain-test-no-params-short-array', 'not_messages'));
+
+        $this->assertEquals(['sources' => [self::FIXTURES_FOLDER . 'translatable-backed-enum.html.php:16']], $catalogue->getMetadata('text_align.left.label'));
     }
 }
