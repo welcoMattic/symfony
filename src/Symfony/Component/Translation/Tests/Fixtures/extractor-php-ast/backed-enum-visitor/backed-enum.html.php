@@ -53,3 +53,33 @@ enum BackedEnumWithIntergerScalarType: int implements TranslatableInterface
         return $translator->trans('backed_enum.value_concatenation.'.$this->value, locale: $locale);
     }
 }
+
+enum BackedEnumWithSprintf: string implements TranslatableInterface
+{
+    case Foo = 'foo';
+
+    public function trans(TranslatorInterface $translator, ?string $locale = null): string
+    {
+        return $translator->trans(sprintf('backed_enum.value_sprintf.%s', $this->value), locale: $locale);
+    }
+}
+
+enum BackedEnumWithTwoArgumentsInSprintf: string implements TranslatableInterface
+{
+    case Foo = 'foo';
+
+    public function trans(TranslatorInterface $translator, ?string $locale = null): string
+    {
+        return $translator->trans(sprintf('backed_enum.value_sprintf.%s.%s', $this->name, $this->value), locale: $locale);
+    }
+}
+
+enum BackedEnumWithSprintfAndConcatenation: string implements TranslatableInterface
+{
+    case Foo = 'foo';
+
+    public function trans(TranslatorInterface $translator, ?string $locale = null): string
+    {
+        return $translator->trans(sprintf('backed_enum.value_sprintf.%s', $this->value).'.name_concatenation.'.$this->name, locale: $locale);
+    }
+}

@@ -106,6 +106,11 @@ final class BackedEnumVisitor extends AbstractVisitor implements NodeVisitor
         }
 
         $parts[] = $this->resolveExprPart($expr);
+        // If there is only one string part and does not contains sprintf value(s), TransMethodVisitor already extracted the key.
+        if (1 === \count($parts) && !str_contains($parts[0], '{value}') && !str_contains($parts[0], '{name}')) {
+            return null;
+        }
+
         $parts = array_reverse($parts);
 
         // If any part failed to resolve, abort
@@ -135,6 +140,17 @@ final class BackedEnumVisitor extends AbstractVisitor implements NodeVisitor
             if ($expr->name->name === 'name') {
                 return '{name}';
             }
+        }
+
+        if (
+            $expr instanceof Node\Expr\FuncCall &&
+            $expr->name->name === 'sprintf'
+        ) {
+            $args = $expr->args;
+            $pattern = array_shift($args)->value->value;
+            array_walk($args, fn (Node\Arg &$arg) => $arg = $this->resolveExprPart($arg->value));
+
+            return vsprintf($pattern, $args);
         }
 
         return null; // unsupported part

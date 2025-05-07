@@ -4,8 +4,6 @@ namespace Symfony\Component\Translation\Tests\Extractor\Visitor;
 
 use PhpParser\NodeVisitor;
 use Symfony\Component\Translation\Extractor\Visitor\BackedEnumVisitor;
-use Symfony\Component\Translation\Extractor\Visitor\FormTypeVisitor;
-use Symfony\Component\Translation\Extractor\Visitor\TransMethodVisitor;
 use Symfony\Component\Translation\MessageCatalogue;
 
 class BackedEnumVisitorTest extends AbstractVisitorTest
@@ -32,6 +30,9 @@ class BackedEnumVisitorTest extends AbstractVisitorTest
                     'backed_enum.value_concatenation.foo.label' => 'prefixbacked_enum.value_concatenation.foo.label',
                     'backed_enum.both_concatenation.Foo_foo' => 'prefixbacked_enum.both_concatenation.Foo_foo',
                     'backed_enum.value_concatenation.0' => 'prefixbacked_enum.value_concatenation.0',
+                    'backed_enum.value_sprintf.foo' => 'prefixbacked_enum.value_sprintf.foo',
+                    'backed_enum.value_sprintf.Foo.foo' => 'prefixbacked_enum.value_sprintf.Foo.foo',
+                    'backed_enum.value_sprintf.foo.name_concatenation.Foo' => 'prefixbacked_enum.value_sprintf.foo.name_concatenation.Foo',
                 ],
             ],
             $catalogue->all(),
