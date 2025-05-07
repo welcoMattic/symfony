@@ -67,7 +67,7 @@ final class PhpAstExtractor extends AbstractFileExtractor implements ExtractorIn
         $this->prefix = $prefix;
     }
 
-    protected function canBeExtracted(string $file): bool
+    public function canBeExtracted(string $file): bool
     {
         $regex = $this->toRegex([
             't(',
