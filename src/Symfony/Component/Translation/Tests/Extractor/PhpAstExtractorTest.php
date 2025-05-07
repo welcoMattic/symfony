@@ -40,6 +40,16 @@ final class PhpAstExtractorTest extends TestCase
         ], $catalogue->getMetadata('example'));
     }
 
+    public function testCanBeExtracted()
+    {
+        $extractor = new PhpAstExtractor([new TransMethodVisitor()]);
+        $phpFiles = glob(self::FIXTURES_FOLDER.'*.php');
+
+        foreach ($phpFiles as $file) {
+            $this->assertTrue($extractor->canBeExtracted($file), sprintf('Current PHP file: %s', $file));
+        }
+    }
+
     public static function resourcesProvider(): \Generator
     {
         $phpFiles = [];
