@@ -31,7 +31,13 @@ final class PhpAstExtractorTest extends TestCase
         $extractor->extract($resource, $catalogue);
 
         $this->assertEquals(['messages' => ['example' => 'example']], $catalogue->all());
-        $this->assertEquals(['sources' => [self::FIXTURES_FOLDER.'translation.html.php:1']], $catalogue->getMetadata('example'));
+        $this->assertEqualsCanonicalizing([
+            'sources' => [
+                self::FIXTURES_FOLDER.'translation.html.php:1',
+                self::FIXTURES_FOLDER.'translatable-short.html.php:1',
+                self::FIXTURES_FOLDER.'translatable-short-fqn.html.php:1',
+            ],
+        ], $catalogue->getMetadata('example'));
     }
 
     public static function resourcesProvider(): \Generator
