@@ -115,6 +115,6 @@ EOF;
         $this->assertEquals(['sources' => [self::FIXTURES_FOLDER . 'translatable-short-fqn.html.php:2']], $catalogue->getMetadata('translatable-short-fqn single-quoted key'));
         $this->assertEquals(['sources' => [self::FIXTURES_FOLDER . 'translatable-short-fqn.html.php:37']], $catalogue->getMetadata('translatable-short-fqn other-domain-test-no-params-short-array', 'not_messages'));
 
-        $this->assertEquals(['sources' => [self::FIXTURES_FOLDER . 'translatable-backed-enum.html.php:16']], $catalogue->getMetadata('text_align.left.label'));
+        $this->assertEquals(['sources' => [self::FIXTURES_FOLDER . 'translatable-backed-enum.html.php:17']], $catalogue->getMetadata('text_align.left.label'));
     }
 }
