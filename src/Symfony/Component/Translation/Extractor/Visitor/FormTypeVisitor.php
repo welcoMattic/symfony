@@ -53,6 +53,10 @@ final class FormTypeVisitor extends AbstractVisitor implements NodeVisitor
 
     public function leaveNode(Node $node): ?Node
     {
+        if ($node instanceof Node\Stmt\Class_) {
+            $this->isFormType = false;
+        }
+
         return null;
     }
 
