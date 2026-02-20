@@ -34,7 +34,6 @@ final class HarParser
 
         return match ($encoding) {
             'base64' => base64_decode($text, true) ?: '',
-            null => $text,
             default => $text,
         };
     }
@@ -112,50 +111,19 @@ final class HarParser
     public static function getMimeType(array $headers): string
     {
         foreach ($headers as $name => $values) {
-            if ('content-type' === strtolower($name)) {
-                $contentType = $values[0] ?? '';
-                if (str_contains($contentType, ';')) {
-                    return explode(';', $contentType)[0];
-                }
+            if ('content-type' !== strtolower($name)) {
+                continue;
+            }
 
+            $contentType = $values[0] ?? '';
+            if (!str_contains($contentType, ';')) {
                 return $contentType;
             }
+
+            return explode(';', $contentType)[0];
+
         }
 
         return 'application/octet-stream';
-    }
-
-    /**
-     * Gets HTTP status text for a status code.
-     */
-    public static function getStatusText(int $statusCode): string
-    {
-        return match ($statusCode) {
-            100 => 'Continue',
-            101 => 'Switching Protocols',
-            200 => 'OK',
-            201 => 'Created',
-            202 => 'Accepted',
-            204 => 'No Content',
-            301 => 'Moved Permanently',
-            302 => 'Found',
-            303 => 'See Other',
-            304 => 'Not Modified',
-            307 => 'Temporary Redirect',
-            308 => 'Permanent Redirect',
-            400 => 'Bad Request',
-            401 => 'Unauthorized',
-            403 => 'Forbidden',
-            404 => 'Not Found',
-            405 => 'Method Not Allowed',
-            409 => 'Conflict',
-            422 => 'Unprocessable Entity',
-            429 => 'Too Many Requests',
-            500 => 'Internal Server Error',
-            502 => 'Bad Gateway',
-            503 => 'Service Unavailable',
-            504 => 'Gateway Timeout',
-            default => '',
-        };
     }
 }

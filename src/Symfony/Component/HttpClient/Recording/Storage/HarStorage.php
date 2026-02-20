@@ -35,9 +35,9 @@ final class HarStorage implements StorageInterface
         $this->filesystem = $filesystem ?? new Filesystem();
     }
 
-    public function load(string $cassetteName): array
+    public function load(string $collectionName): array
     {
-        $path = $this->getPath($cassetteName);
+        $path = $this->getPath($collectionName);
 
         if (!$this->filesystem->exists($path)) {
             return [];
@@ -53,7 +53,7 @@ final class HarStorage implements StorageInterface
         return $entries;
     }
 
-    public function save(string $cassetteName, array $entries): void
+    public function save(string $collectionName, array $entries): void
     {
         $harEntries = [];
         foreach ($entries as $entry) {
@@ -72,19 +72,19 @@ final class HarStorage implements StorageInterface
         ];
 
         $this->filesystem->dumpFile(
-            $this->getPath($cassetteName),
+            $this->getPath($collectionName),
             json_encode($har, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES)
         );
     }
 
-    public function exists(string $cassetteName): bool
+    public function exists(string $collectionName): bool
     {
-        return $this->filesystem->exists($this->getPath($cassetteName));
+        return $this->filesystem->exists($this->getPath($collectionName));
     }
 
-    public function delete(string $cassetteName): void
+    public function delete(string $collectionName): void
     {
-        $path = $this->getPath($cassetteName);
+        $path = $this->getPath($collectionName);
 
         if ($this->filesystem->exists($path)) {
             $this->filesystem->remove($path);
@@ -107,14 +107,14 @@ final class HarStorage implements StorageInterface
 
     public function purge(): void
     {
-        foreach ($this->list() as $cassetteName) {
-            $this->delete($cassetteName);
+        foreach ($this->list() as $collectionName) {
+            $this->delete($collectionName);
         }
     }
 
-    private function getPath(string $cassetteName): string
+    private function getPath(string $collectionName): string
     {
-        return $this->directory . \DIRECTORY_SEPARATOR . $cassetteName . '.har';
+        return $this->directory . \DIRECTORY_SEPARATOR . $collectionName . '.har';
     }
 
     private function harEntryToRecordingEntry(array $harEntry): HttpRecord
@@ -176,7 +176,6 @@ final class HarStorage implements StorageInterface
             ],
             'response' => [
                 'status' => $entry->statusCode,
-                'statusText' => HarParser::getStatusText($entry->statusCode),
                 'httpVersion' => 'HTTP/1.1',
                 'cookies' => [],
                 'headers' => $responseHeaders,

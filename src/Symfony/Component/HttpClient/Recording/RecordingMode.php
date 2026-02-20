@@ -21,25 +21,25 @@ enum RecordingMode: string
     /**
      * Always record new responses, replacing any existing recordings.
      */
-    case Record = 'record';
+    case RECORD = 'record';
 
     /**
      * Only replay recorded responses, throw exception on unknown requests.
      */
-    case Playback = 'playback';
+    case PLAYBACK = 'playback';
 
     /**
      * Record the first request, then replay on subsequent requests.
      */
-    case Once = 'once';
+    case ONCE = 'once';
 
     /**
-     * Replay known requests, record unknown requests.
+     * Replay recorded requests, record missing requests.
      */
-    case NewEpisodes = 'new_episodes';
+    case RECORD_IF_MISSING = 'record_if_missing';
 
     /**
      * Bypass recording entirely, pass through to underlying client.
      */
-    case Disabled = 'disabled';
+    case PASSTHROUGH = 'passthrough';
 }

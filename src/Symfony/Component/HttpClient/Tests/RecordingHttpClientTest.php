@@ -49,7 +49,7 @@ class RecordingHttpClientTest extends TestCase
 
         $storage = new HarStorage($this->tempDir);
         $collection = new HttpRecordCollection('test_record', $storage);
-        $client = new RecordingHttpClient($mockClient, $collection, RecordingMode::Record);
+        $client = new RecordingHttpClient($mockClient, $collection, RecordingMode::RECORD);
 
         $response = $client->request('GET', 'https://api.example.com/status');
         $content = $response->getContent();
@@ -70,7 +70,7 @@ class RecordingHttpClientTest extends TestCase
 
         $storage = new HarStorage($this->tempDir);
         $collection = new HttpRecordCollection('test_playback', $storage);
-        $client = new RecordingHttpClient($mockClient, $collection, RecordingMode::Record);
+        $client = new RecordingHttpClient($mockClient, $collection, RecordingMode::RECORD);
 
         $response = $client->request('GET', 'https://api.example.com/data');
         $response->getContent();
@@ -81,7 +81,7 @@ class RecordingHttpClientTest extends TestCase
         ]);
 
         $newCollection = new HttpRecordCollection('test_playback', $storage);
-        $playbackClient = new RecordingHttpClient($newMockClient, $newCollection, RecordingMode::Playback);
+        $playbackClient = new RecordingHttpClient($newMockClient, $newCollection, RecordingMode::PLAYBACK);
 
         $response = $playbackClient->request('GET', 'https://api.example.com/data');
         $this->assertSame('recorded response', $response->getContent());
@@ -93,7 +93,7 @@ class RecordingHttpClientTest extends TestCase
         $storage = new HarStorage($this->tempDir);
         $collection = new HttpRecordCollection('empty_cassette', $storage);
         $mockClient = new MockHttpClient();
-        $client = new RecordingHttpClient($mockClient, $collection, RecordingMode::Playback);
+        $client = new RecordingHttpClient($mockClient, $collection, RecordingMode::PLAYBACK);
 
         $this->expectException(NoMatchingRecordingException::class);
         $this->expectExceptionMessage('No recording found for "GET https://api.example.com/unknown"');
@@ -102,7 +102,7 @@ class RecordingHttpClientTest extends TestCase
         $response->getContent();
     }
 
-    public function testNewEpisodesMode()
+    public function testRecordIfMissingMode()
     {
         // First request - should record
         $mockClient = new MockHttpClient([
@@ -112,7 +112,7 @@ class RecordingHttpClientTest extends TestCase
 
         $storage = new HarStorage($this->tempDir);
         $collection = new HttpRecordCollection('test_new_episodes', $storage);
-        $client = new RecordingHttpClient($mockClient, $collection, RecordingMode::NewEpisodes);
+        $client = new RecordingHttpClient($mockClient, $collection, RecordingMode::RECORD_IF_MISSING);
 
         // First request - records
         $response1 = $client->request('GET', 'https://api.example.com/first');
@@ -127,7 +127,7 @@ class RecordingHttpClientTest extends TestCase
             new MockResponse('should not see this', ['http_code' => 500]),
         ]);
         $newCollection = new HttpRecordCollection('test_new_episodes', $storage);
-        $newClient = new RecordingHttpClient($newMockClient, $newCollection, RecordingMode::NewEpisodes);
+        $newClient = new RecordingHttpClient($newMockClient, $newCollection, RecordingMode::RECORD_IF_MISSING);
 
         // Should replay from cassette
         $replayResponse = $newClient->request('GET', 'https://api.example.com/first');
@@ -142,7 +142,7 @@ class RecordingHttpClientTest extends TestCase
 
         $storage = new HarStorage($this->tempDir);
         $collection = new HttpRecordCollection('test_disabled', $storage);
-        $client = new RecordingHttpClient($mockClient, $collection, RecordingMode::Disabled);
+        $client = new RecordingHttpClient($mockClient, $collection, RecordingMode::PASSTHROUGH);
 
         $response = $client->request('GET', 'https://api.example.com/status');
         $this->assertSame('passthrough response', $response->getContent());
@@ -156,14 +156,14 @@ class RecordingHttpClientTest extends TestCase
         $mockClient = new MockHttpClient();
         $storage = new HarStorage($this->tempDir);
         $collection = new HttpRecordCollection('test', $storage);
-        $client = new RecordingHttpClient($mockClient, $collection, RecordingMode::Record);
+        $client = new RecordingHttpClient($mockClient, $collection, RecordingMode::RECORD);
 
-        $this->assertSame(RecordingMode::Record, $client->getMode());
+        $this->assertSame(RecordingMode::RECORD, $client->getMode());
 
-        $newClient = $client->withMode(RecordingMode::Playback);
+        $newClient = $client->withMode(RecordingMode::PLAYBACK);
 
-        $this->assertSame(RecordingMode::Playback, $newClient->getMode());
-        $this->assertSame(RecordingMode::Record, $client->getMode()); // Original unchanged
+        $this->assertSame(RecordingMode::PLAYBACK, $newClient->getMode());
+        $this->assertSame(RecordingMode::RECORD, $client->getMode()); // Original unchanged
     }
 
     /*
@@ -202,7 +202,7 @@ class RecordingHttpClientTest extends TestCase
 
         // Use a matcher that only matches on method (ignores URL)
         $matcher = new RequestMatcher([RequestMatcher::STRATEGY_METHOD]);
-        $client = new RecordingHttpClient($mockClient, $collection, RecordingMode::Record, $matcher);
+        $client = new RecordingHttpClient($mockClient, $collection, RecordingMode::RECORD, $matcher);
 
         $response = $client->request('GET', 'https://api.example.com/one');
         $response->getContent();
@@ -212,7 +212,7 @@ class RecordingHttpClientTest extends TestCase
             new MockResponse('new response', ['http_code' => 500]),
         ]);
         $newCollection = new HttpRecordCollection('test_matcher', $storage);
-        $playbackClient = new RecordingHttpClient($newMockClient, $newCollection, RecordingMode::Playback, $matcher);
+        $playbackClient = new RecordingHttpClient($newMockClient, $newCollection, RecordingMode::PLAYBACK, $matcher);
 
         // Should match because we only compare method
         $replayResponse = $playbackClient->request('GET', 'https://api.example.com/different-url');
@@ -228,7 +228,7 @@ class RecordingHttpClientTest extends TestCase
 
         $storage = new HarStorage($this->tempDir);
         $collection = new HttpRecordCollection('test_streaming', $storage);
-        $client = new RecordingHttpClient($mockClient, $collection, RecordingMode::Record);
+        $client = new RecordingHttpClient($mockClient, $collection, RecordingMode::RECORD);
 
         $response = $client->request('GET', 'https://api.example.com/stream');
         $content = $response->getContent();
@@ -237,7 +237,7 @@ class RecordingHttpClientTest extends TestCase
 
         // Verify it can be replayed
         $newCollection = new HttpRecordCollection('test_streaming', $storage);
-        $playbackClient = new RecordingHttpClient(new MockHttpClient(), $newCollection, RecordingMode::Playback);
+        $playbackClient = new RecordingHttpClient(new MockHttpClient(), $newCollection, RecordingMode::PLAYBACK);
 
         $replayResponse = $playbackClient->request('GET', 'https://api.example.com/stream');
         $this->assertSame('chunk1chunk2chunk3', $replayResponse->getContent());
@@ -254,7 +254,7 @@ class RecordingHttpClientTest extends TestCase
 
         $storage = new HarStorage($this->tempDir);
         $collection = new HttpRecordCollection('test_post', $storage);
-        $client = new RecordingHttpClient($mockClient, $collection, RecordingMode::Record);
+        $client = new RecordingHttpClient($mockClient, $collection, RecordingMode::RECORD);
 
         $response = $client->request('POST', 'https://api.example.com/users', [
             'json' => ['name' => 'John Doe'],
@@ -272,7 +272,7 @@ class RecordingHttpClientTest extends TestCase
 
         $storage = new HarStorage($this->tempDir);
         $collection = new HttpRecordCollection('test_reset', $storage);
-        $client = new RecordingHttpClient($mockClient, $collection, RecordingMode::Record);
+        $client = new RecordingHttpClient($mockClient, $collection, RecordingMode::RECORD);
 
         $response = $client->request('GET', 'https://api.example.com/data');
         $response->getContent();

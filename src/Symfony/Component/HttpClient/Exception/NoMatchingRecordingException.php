@@ -26,7 +26,7 @@ class NoMatchingRecordingException extends \RuntimeException implements Transpor
         private readonly string $collectionName,
     ) {
         parent::__construct(\sprintf(
-            'No recording found for "%s %s" in collection "%s". Run in Record or NewEpisodes mode to record this request.',
+            'No recording found for "%s %s" in collection "%s". Run in Record or RecordIfMissing mode to record this request.',
             $method,
             $url,
             $collectionName

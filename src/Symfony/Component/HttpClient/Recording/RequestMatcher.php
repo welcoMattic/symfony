@@ -41,18 +41,18 @@ use Symfony\Component\HttpClient\Recording\Matcher\UrlRecordingMatcher;
  */
 final class RequestMatcher implements RequestMatcherInterface
 {
-    public const STRATEGY_METHOD = 'method';
-    public const STRATEGY_URL = 'url';
-    public const STRATEGY_HOST = 'host';
-    public const STRATEGY_PATH = 'path';
-    public const STRATEGY_QUERY = 'query';
-    public const STRATEGY_HEADERS = 'headers';
-    public const STRATEGY_BODY = 'body';
+    public const string STRATEGY_METHOD = 'method';
+    public const string STRATEGY_URL = 'url';
+    public const string STRATEGY_HOST = 'host';
+    public const string STRATEGY_PATH = 'path';
+    public const string STRATEGY_QUERY = 'query';
+    public const string STRATEGY_HEADERS = 'headers';
+    public const string STRATEGY_BODY = 'body';
 
     /**
      * Default strategies matching PHP-VCR behavior.
      */
-    public const DEFAULT_STRATEGIES = [self::STRATEGY_METHOD, self::STRATEGY_URL];
+    public const array DEFAULT_STRATEGIES = [self::STRATEGY_METHOD, self::STRATEGY_URL];
 
     private readonly ChainRecordingMatcher $chainMatcher;
 

@@ -35,7 +35,7 @@ use Symfony\Contracts\Service\ResetInterface;
  * - Record: Always record new responses
  * - Playback: Only replay recorded responses
  * - Once: Record first time, then replay
- * - NewEpisodes: Replay known requests, record unknown
+ * - RecordIfMissing: Replay known requests, record unknown
  * - Disabled: Bypass recording entirely
  *
  * @author Mathieu Santostefano <msantostefano@protonmail.com>
@@ -53,7 +53,7 @@ class RecordingHttpClient implements HttpClientInterface, ResetInterface
     public function __construct(
         private HttpClientInterface $client,
         private HttpRecordCollectionInterface $collection,
-        private RecordingMode $mode = RecordingMode::NewEpisodes,
+        private RecordingMode $mode = RecordingMode::RECORD_IF_MISSING,
         private ?RequestMatcherInterface $matcher = null,
     ) {
         $this->matcher ??= new RequestMatcher();
@@ -61,7 +61,7 @@ class RecordingHttpClient implements HttpClientInterface, ResetInterface
 
     public function request(string $method, string $url, array $options = []): ResponseInterface
     {
-        if (RecordingMode::Disabled === $this->mode) {
+        if (RecordingMode::DISABLED === $this->mode) {
             return $this->client->request($method, $url, $options);
         }
 
@@ -75,7 +75,7 @@ class RecordingHttpClient implements HttpClientInterface, ResetInterface
                 return $this->createPlaybackResponse($method, $fullUrl, $options, $entry);
             }
 
-            if (RecordingMode::Playback === $this->mode) {
+            if (RecordingMode::PLAYBACK === $this->mode) {
                 throw new NoMatchingRecordingException($method, $fullUrl, $this->collection->getName());
             }
         }
@@ -167,9 +167,9 @@ class RecordingHttpClient implements HttpClientInterface, ResetInterface
     private function shouldPlayback(): bool
     {
         return \in_array($this->mode, [
-            RecordingMode::Playback,
-            RecordingMode::Once,
-            RecordingMode::NewEpisodes,
+            RecordingMode::PLAYBACK,
+            RecordingMode::ONCE,
+            RecordingMode::RECORD_IF_MISSING,
         ], true);
     }
 
@@ -229,7 +229,7 @@ class RecordingHttpClient implements HttpClientInterface, ResetInterface
                     responseInfo: $context->getInfo() ?? [],
                 );
 
-                if (RecordingMode::Record === $mode) {
+                if (RecordingMode::RECORD === $mode) {
                     $collection->replaceOrAdd($entry, $matcher);
                 } else {
                     $collection->record($entry);

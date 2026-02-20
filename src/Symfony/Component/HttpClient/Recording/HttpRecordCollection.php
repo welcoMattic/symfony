@@ -40,13 +40,8 @@ final class HttpRecordCollection implements HttpRecordCollectionInterface
     {
         $this->ensureLoaded();
 
-        foreach ($this->entries as $entry) {
-            if ($matcher->matches($entry, $method, $url, $options)) {
-                return $entry;
-            }
-        }
+        return array_find($this->entries, fn($entry) => $matcher->matches($entry, $method, $url, $options));
 
-        return null;
     }
 
     public function record(HttpRecord $entry): void
@@ -114,20 +109,20 @@ final class HttpRecordCollection implements HttpRecordCollectionInterface
         return null;
     }
 
-    public function replaceOrAdd(HttpRecord $newEntry, RequestMatcherInterface $matcher): void
+    public function replaceOrAdd(HttpRecord $entry, RequestMatcherInterface $matcher): void
     {
         $this->ensureLoaded();
 
-        foreach ($this->entries as $index => $entry) {
-            if ($matcher->matches($entry, $newEntry->method, $newEntry->url, [])) {
-                $this->entries[$index] = $newEntry;
+        foreach ($this->entries as $index => $existingEntry) {
+            if ($matcher->matches($existingEntry, $entry->method, $entry->url, [])) {
+                $this->entries[$index] = $entry;
                 $this->dirty = true;
 
                 return;
             }
         }
 
-        $this->entries[] = $newEntry;
+        $this->entries[] = $entry;
         $this->dirty = true;
     }
 
