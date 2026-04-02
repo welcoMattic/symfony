@@ -14,7 +14,6 @@ namespace Symfony\Component\Security\Http\EventListener;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcClient;
-use Symfony\Component\Security\Http\Authenticator\Oidc\OidcTokens;
 use Symfony\Component\Security\Http\Event\LogoutEvent;
 use Symfony\Component\Security\Http\HttpUtils;
 
@@ -24,7 +23,7 @@ use Symfony\Component\Security\Http\HttpUtils;
  *
  * @see https://openid.net/specs/openid-connect-rpinitiated-1_0.html
  *
- * @author Mathieu Music <music.music@gmail.com>
+ * @author Mathieu Santostefano <msantostefano@proton.me>
  */
 final class OidcEndSessionListener implements EventSubscriberInterface
 {
@@ -38,12 +37,12 @@ final class OidcEndSessionListener implements EventSubscriberInterface
     public function onLogout(LogoutEvent $event): void
     {
         $token = $event->getToken();
-        if (null === $token) {
+        if (null === $token || !$token->hasAttribute('oidc_id_token')) {
             return;
         }
 
-        $oidcTokens = $token->getAttribute('oidc_tokens');
-        if (!$oidcTokens instanceof OidcTokens) {
+        $idToken = $token->getAttribute('oidc_id_token');
+        if (!\is_string($idToken)) {
             return;
         }
 
@@ -52,7 +51,7 @@ final class OidcEndSessionListener implements EventSubscriberInterface
             $postLogoutRedirectUri = $this->httpUtils->generateUri($event->getRequest(), $this->postLogoutRedirectPath);
         }
 
-        $endSessionUrl = $this->oidcClient->buildEndSessionUrl($oidcTokens->idToken, $postLogoutRedirectUri);
+        $endSessionUrl = $this->oidcClient->buildEndSessionUrl($idToken, $postLogoutRedirectUri);
         $event->setResponse(new RedirectResponse($endSessionUrl));
     }
 

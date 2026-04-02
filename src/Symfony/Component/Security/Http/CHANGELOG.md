@@ -5,8 +5,7 @@ CHANGELOG
 ---
 
  * Add `OidcLoginAuthenticator` for the OpenID Connect Authorization Code Flow (interactive login via OIDC provider)
- * Add `OidcClient`, `OidcDiscovery`, `OidcConfiguration`, `OidcTokens`, and `OidcAuthorizationCodeFlowState` protocol classes
- * Add `OidcTokensBadge` passport badge to carry OIDC tokens through the authentication pipeline
+ * Add `OidcClient` and `OidcDiscovery` protocol classes
  * Add `OidcEndSessionListener` for RP-Initiated Logout via the OIDC `end_session_endpoint`
  * Add support for the `clientHints`, `prefetchCache`, and `prerenderCache` `ClearSite-Data` directives
  * Add `this` to `#[IsGranted]` subject expression variables when available

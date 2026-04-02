@@ -11,7 +11,6 @@
 
 namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
-use Symfony\Component\Security\Http\Authenticator\Oidc\OidcAuthorizationCodeFlowState;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcClient;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcDiscovery;
 use Symfony\Component\Security\Http\Authenticator\OidcLoginAuthenticator;
@@ -38,19 +37,13 @@ return static function (ContainerConfigurator $container) {
                 abstract_arg('cache TTL'),
             ])
 
-        ->set('security.authenticator.oidc_login.state_storage', OidcAuthorizationCodeFlowState::class)
-            ->abstract()
-            ->args([
-                service('request_stack'),
-                abstract_arg('firewall name'),
-            ])
-
         ->set('security.authenticator.oidc_login.client', OidcClient::class)
             ->abstract()
             ->args([
                 service('http_client'),
                 abstract_arg('OIDC discovery'),
-                abstract_arg('state storage'),
+                service('request_stack'),
+                abstract_arg('firewall name'),
                 abstract_arg('client ID'),
                 abstract_arg('client secret'),
                 abstract_arg('callback URL'),

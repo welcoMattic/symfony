@@ -20,7 +20,7 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  *
  * @see https://openid.net/specs/openid-connect-discovery-1_0.html
  *
- * @author Mathieu Music <music.music@gmail.com>
+ * @author Mathieu Santostefano <msantostefano@proton.me>
  */
 final class OidcDiscovery
 {
@@ -32,14 +32,15 @@ final class OidcDiscovery
     ) {
     }
 
-    public function getConfiguration(): OidcConfiguration
+    /**
+     * @return array<string, mixed> The raw discovery document
+     */
+    public function getConfiguration(): array
     {
-        $data = $this->cache->get('oidc_discovery.'.hash('xxh128', $this->openIdConfigurationUrl), function (ItemInterface $item): array {
+        return $this->cache->get('oidc_discovery.'.hash('xxh128', $this->openIdConfigurationUrl), function (ItemInterface $item): array {
             $item->expiresAfter($this->cacheTtl);
 
             return $this->httpClient->request('GET', $this->openIdConfigurationUrl)->toArray();
         });
-
-        return OidcConfiguration::fromArray($data);
     }
 }

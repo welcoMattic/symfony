@@ -36,7 +36,6 @@ class OidcLoginFactoryTest extends TestCase
         $this->assertTrue($container->hasDefinition('security.authenticator.oidc_login'));
         $this->assertTrue($container->hasDefinition('security.authenticator.oidc_login.main'));
         $this->assertTrue($container->hasDefinition('security.authenticator.oidc_login.discovery.main'));
-        $this->assertTrue($container->hasDefinition('security.authenticator.oidc_login.state_storage.main'));
         $this->assertTrue($container->hasDefinition('security.authenticator.oidc_login.client.main'));
     }
 

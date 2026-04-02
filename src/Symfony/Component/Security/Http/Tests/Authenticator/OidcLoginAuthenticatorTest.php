@@ -18,9 +18,7 @@ use Symfony\Component\Security\Core\Exception\AuthenticationException;
 use Symfony\Component\Security\Http\Authentication\AuthenticationFailureHandlerInterface;
 use Symfony\Component\Security\Http\Authentication\AuthenticationSuccessHandlerInterface;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcClient;
-use Symfony\Component\Security\Http\Authenticator\Oidc\OidcTokens;
 use Symfony\Component\Security\Http\Authenticator\OidcLoginAuthenticator;
-use Symfony\Component\Security\Http\Authenticator\Passport\Badge\OidcTokensBadge;
 use Symfony\Component\Security\Http\Authenticator\Passport\Badge\RememberMeBadge;
 use Symfony\Component\Security\Http\Authenticator\Passport\Badge\UserBadge;
 use Symfony\Component\Security\Http\Authenticator\Passport\SelfValidatingPassport;
@@ -73,15 +71,13 @@ class OidcLoginAuthenticatorTest extends TestCase
 
     public function testAuthenticate()
     {
-        $tokens = new OidcTokens(
-            accessToken: 'access-123',
-            idToken: 'id-456',
-            refreshToken: 'refresh-789',
-        );
-
         $this->oidcClient->expects($this->once())
             ->method('handleCallback')
-            ->willReturn($tokens);
+            ->willReturn([
+                'access_token' => 'access-123',
+                'id_token' => 'id-456',
+                'refresh_token' => 'refresh-789',
+            ]);
 
         $this->oidcClient->expects($this->once())
             ->method('fetchUserInfo')
@@ -102,16 +98,15 @@ class OidcLoginAuthenticatorTest extends TestCase
         $userBadge = $passport->getBadge(UserBadge::class);
         $this->assertSame('user-42', $userBadge->getUserIdentifier());
 
-        $this->assertTrue($passport->hasBadge(OidcTokensBadge::class));
-        $oidcTokensBadge = $passport->getBadge(OidcTokensBadge::class);
-        $this->assertSame('access-123', $oidcTokensBadge->getOidcTokens()->accessToken);
-
         $this->assertTrue($passport->hasBadge(RememberMeBadge::class));
+
+        $tokenData = $passport->getAttribute('oidc_token_data');
+        $this->assertSame('access-123', $tokenData['access_token']);
+        $this->assertSame('id-456', $tokenData['id_token']);
     }
 
     public function testAuthenticateWithoutUserinfo()
     {
-        // Create a valid JWT-like ID token with claims in the payload
         $header = base64_encode(json_encode(['alg' => 'RS256', 'typ' => 'JWT']));
         $payload = rtrim(strtr(base64_encode(json_encode([
             'sub' => 'user-42',
@@ -120,14 +115,12 @@ class OidcLoginAuthenticatorTest extends TestCase
         $signature = base64_encode('fake-signature');
         $idToken = $header.'.'.$payload.'.'.$signature;
 
-        $tokens = new OidcTokens(
-            accessToken: 'access-123',
-            idToken: $idToken,
-        );
-
         $this->oidcClient->expects($this->once())
             ->method('handleCallback')
-            ->willReturn($tokens);
+            ->willReturn([
+                'access_token' => 'access-123',
+                'id_token' => $idToken,
+            ]);
 
         $this->oidcClient->expects($this->never())
             ->method('fetchUserInfo');
@@ -142,9 +135,10 @@ class OidcLoginAuthenticatorTest extends TestCase
 
     public function testAuthenticateMissingClaim()
     {
-        $tokens = new OidcTokens(accessToken: 'access-123', idToken: 'id-456');
-
-        $this->oidcClient->method('handleCallback')->willReturn($tokens);
+        $this->oidcClient->method('handleCallback')->willReturn([
+            'access_token' => 'access-123',
+            'id_token' => 'id-456',
+        ]);
         $this->oidcClient->method('fetchUserInfo')->willReturn(['email' => 'test@example.com']);
 
         $authenticator = $this->createAuthenticator();

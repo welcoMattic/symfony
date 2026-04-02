@@ -21,7 +21,7 @@ use Symfony\Component\DependencyInjection\Reference;
 /**
  * OidcLoginFactory creates services for OpenID Connect Authorization Code Flow authentication.
  *
- * @author Mathieu Music <music.music@gmail.com>
+ * @author Mathieu Santostefano <msantostefano@proton.me>
  *
  * @internal
  */
@@ -108,7 +108,6 @@ class OidcLoginFactory extends AbstractFactory
         }
 
         $providerUri = rtrim($config['provider_uri'], '/');
-        $callbackUrl = $config['check_path'];
 
         // Discovery service
         $discoveryId = 'security.authenticator.oidc_login.discovery.'.$firewallName;
@@ -118,26 +117,19 @@ class OidcLoginFactory extends AbstractFactory
             ->replaceArgument(3, $config['discovery_cache_ttl'])
         ;
 
-        // Flow state storage (session)
-        $stateStorageId = 'security.authenticator.oidc_login.state_storage.'.$firewallName;
-        $container
-            ->setDefinition($stateStorageId, new ChildDefinition('security.authenticator.oidc_login.state_storage'))
-            ->replaceArgument(1, $firewallName)
-        ;
-
         // OIDC Client
         $oidcClientId = 'security.authenticator.oidc_login.client.'.$firewallName;
         $container
             ->setDefinition($oidcClientId, new ChildDefinition('security.authenticator.oidc_login.client'))
             ->replaceArgument(1, new Reference($discoveryId))
-            ->replaceArgument(2, new Reference($stateStorageId))
-            ->replaceArgument(3, $config['client_id'])
-            ->replaceArgument(4, $config['client_secret'])
-            ->replaceArgument(5, $callbackUrl)
-            ->replaceArgument(6, $config['scopes'] ?? ['openid'])
-            ->replaceArgument(7, $config['pkce']['enabled'] ?? true)
-            ->replaceArgument(8, $config['pkce']['method'] ?? 'S256')
-            ->replaceArgument(9, $config['token_endpoint_auth_method'] ?? 'client_secret_post')
+            ->replaceArgument(3, $firewallName)
+            ->replaceArgument(4, $config['client_id'])
+            ->replaceArgument(5, $config['client_secret'])
+            ->replaceArgument(6, $config['check_path'])
+            ->replaceArgument(7, $config['scopes'] ?? ['openid'])
+            ->replaceArgument(8, $config['pkce']['enabled'] ?? true)
+            ->replaceArgument(9, $config['pkce']['method'] ?? 'S256')
+            ->replaceArgument(10, $config['token_endpoint_auth_method'] ?? 'client_secret_post')
         ;
 
         // Authenticator

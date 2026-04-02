@@ -19,7 +19,6 @@ use Symfony\Component\Security\Http\AccessToken\Oidc\OidcTrait;
 use Symfony\Component\Security\Http\Authentication\AuthenticationFailureHandlerInterface;
 use Symfony\Component\Security\Http\Authentication\AuthenticationSuccessHandlerInterface;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcClient;
-use Symfony\Component\Security\Http\Authenticator\Passport\Badge\OidcTokensBadge;
 use Symfony\Component\Security\Http\Authenticator\Passport\Badge\RememberMeBadge;
 use Symfony\Component\Security\Http\Authenticator\Passport\Badge\UserBadge;
 use Symfony\Component\Security\Http\Authenticator\Passport\Passport;
@@ -30,12 +29,9 @@ use Symfony\Component\Security\Http\HttpUtils;
 /**
  * Authenticator for the OpenID Connect Authorization Code Flow.
  *
- * Handles the callback from the OIDC provider after the user has authenticated,
- * exchanges the authorization code for tokens, and creates the security token.
- *
  * @see https://openid.net/specs/openid-connect-core-1_0.html#CodeFlowAuth
  *
- * @author Mathieu Music <music.music@gmail.com>
+ * @author Mathieu Santostefano <msantostefano@proton.me>
  *
  * @final
  */
@@ -56,7 +52,6 @@ class OidcLoginAuthenticator extends AbstractLoginFormAuthenticator
             'check_path' => '/oidc/callback',
             'login_path' => '/login',
             'direct_redirect' => false,
-            'scopes' => ['openid'],
             'claim' => 'sub',
             'enable_userinfo' => true,
         ], $options);
@@ -84,11 +79,11 @@ class OidcLoginAuthenticator extends AbstractLoginFormAuthenticator
 
     public function authenticate(Request $request): Passport
     {
-        $tokens = $this->oidcClient->handleCallback($request);
+        $tokenData = $this->oidcClient->handleCallback($request);
 
         $claims = $this->options['enable_userinfo']
-            ? $this->oidcClient->fetchUserInfo($tokens->accessToken)
-            : $this->decodeIdTokenClaims($tokens->idToken);
+            ? $this->oidcClient->fetchUserInfo($tokenData['access_token'])
+            : $this->decodeIdTokenClaims($tokenData['id_token']);
 
         $claim = $this->options['claim'];
         if (empty($claims[$claim])) {
@@ -104,21 +99,24 @@ class OidcLoginAuthenticator extends AbstractLoginFormAuthenticator
             return $this->createUser($claims);
         });
 
-        return new SelfValidatingPassport(
+        $passport = new SelfValidatingPassport(
             new UserBadge($userIdentifier, $userLoader, $claims),
-            [
-                new OidcTokensBadge($tokens),
-                new RememberMeBadge(),
-            ],
+            [new RememberMeBadge()],
         );
+
+        $passport->setAttribute('oidc_token_data', $tokenData);
+
+        return $passport;
     }
 
     public function createToken(Passport $passport, string $firewallName): TokenInterface
     {
         $token = new PostAuthenticationToken($passport->getUser(), $firewallName, $passport->getUser()->getRoles());
 
-        if ($passport->hasBadge(OidcTokensBadge::class)) {
-            $token->setAttribute('oidc_tokens', $passport->getBadge(OidcTokensBadge::class)->getOidcTokens());
+        $tokenData = $passport->getAttribute('oidc_token_data');
+        if (\is_array($tokenData)) {
+            $token->setAttribute('oidc_id_token', $tokenData['id_token'] ?? null);
+            $token->setAttribute('oidc_access_token', $tokenData['access_token'] ?? null);
         }
 
         return $token;
