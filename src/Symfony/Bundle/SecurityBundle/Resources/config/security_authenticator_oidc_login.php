@@ -12,6 +12,7 @@
 namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcClient;
+use Symfony\Component\Security\Http\Authenticator\Oidc\OidcClientCredentials;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcDiscovery;
 use Symfony\Component\Security\Http\Authenticator\OidcLoginAuthenticator;
 use Symfony\Component\Security\Http\EventListener\OidcEndSessionListener;
@@ -26,6 +27,7 @@ return static function (ContainerConfigurator $container) {
                 abstract_arg('authentication success handler'),
                 abstract_arg('authentication failure handler'),
                 abstract_arg('options'),
+                abstract_arg('authorization params'),
             ])
 
         ->set('security.authenticator.oidc_login.discovery', OidcDiscovery::class)
@@ -37,6 +39,14 @@ return static function (ContainerConfigurator $container) {
                 abstract_arg('cache TTL'),
             ])
 
+        ->set('security.authenticator.oidc_login.credentials', OidcClientCredentials::class)
+            ->abstract()
+            ->args([
+                abstract_arg('client ID'),
+                abstract_arg('client secret'),
+                abstract_arg('token endpoint auth method'),
+            ])
+
         ->set('security.authenticator.oidc_login.client', OidcClient::class)
             ->abstract()
             ->args([
@@ -44,13 +54,11 @@ return static function (ContainerConfigurator $container) {
                 abstract_arg('OIDC discovery'),
                 service('request_stack'),
                 abstract_arg('firewall name'),
-                abstract_arg('client ID'),
-                abstract_arg('client secret'),
+                abstract_arg('credentials'),
                 abstract_arg('callback URL'),
                 abstract_arg('scopes'),
                 abstract_arg('PKCE enabled'),
                 abstract_arg('PKCE method'),
-                abstract_arg('token endpoint auth method'),
             ])
 
         ->set('security.authenticator.oidc_login.end_session_listener', OidcEndSessionListener::class)

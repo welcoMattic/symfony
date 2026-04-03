@@ -155,9 +155,28 @@ class OidcLoginAuthenticatorTest extends TestCase
         $redirectResponse = new RedirectResponse('https://provider.example.com/authorize?...');
         $this->oidcClient->expects($this->once())
             ->method('startAuthorization')
+            ->with([])
             ->willReturn($redirectResponse);
 
         $authenticator = $this->createAuthenticator(['direct_redirect' => true]);
+        $request = Request::create('/protected');
+
+        $response = $authenticator->start($request);
+
+        $this->assertSame($redirectResponse, $response);
+    }
+
+    public function testStartWithDirectRedirectForwardsAuthorizationParams()
+    {
+        $authorizationParams = ['prompt' => 'consent', 'max_age' => '3600'];
+
+        $redirectResponse = new RedirectResponse('https://provider.example.com/authorize?...');
+        $this->oidcClient->expects($this->once())
+            ->method('startAuthorization')
+            ->with($authorizationParams)
+            ->willReturn($redirectResponse);
+
+        $authenticator = $this->createAuthenticator(['direct_redirect' => true], $authorizationParams);
         $request = Request::create('/protected');
 
         $response = $authenticator->start($request);
@@ -176,7 +195,7 @@ class OidcLoginAuthenticatorTest extends TestCase
         $this->assertSame('/login', $response->getTargetUrl());
     }
 
-    private function createAuthenticator(array $options = []): OidcLoginAuthenticator
+    private function createAuthenticator(array $options = [], array $authorizationParams = []): OidcLoginAuthenticator
     {
         return new OidcLoginAuthenticator(
             new HttpUtils(),
@@ -184,6 +203,7 @@ class OidcLoginAuthenticatorTest extends TestCase
             $this->successHandler,
             $this->failureHandler,
             $options,
+            $authorizationParams,
         );
     }
 }
