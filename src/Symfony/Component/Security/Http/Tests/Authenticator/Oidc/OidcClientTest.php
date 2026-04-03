@@ -18,6 +18,7 @@ use Symfony\Component\HttpFoundation\Session\Session;
 use Symfony\Component\HttpFoundation\Session\Storage\MockArraySessionStorage;
 use Symfony\Component\Security\Core\Exception\AuthenticationException;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcClient;
+use Symfony\Component\Security\Http\Authenticator\Oidc\OidcClientCredentials;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcDiscovery;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Symfony\Contracts\HttpClient\ResponseInterface;
@@ -372,8 +373,7 @@ class OidcClientTest extends TestCase
             discovery: $this->discovery,
             requestStack: $this->requestStack,
             firewallName: 'main',
-            clientId: 'test-client-id',
-            clientSecret: 'test-client-secret',
+            credentials: new OidcClientCredentials('test-client-id', 'test-client-secret'),
             callbackUrl: 'https://app.example.com/oidc/callback',
             scopes: $scopes,
             pkceEnabled: $pkceEnabled,

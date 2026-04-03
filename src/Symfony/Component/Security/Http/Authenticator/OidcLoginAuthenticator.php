@@ -47,6 +47,7 @@ class OidcLoginAuthenticator extends AbstractLoginFormAuthenticator
         private readonly AuthenticationSuccessHandlerInterface $successHandler,
         private readonly AuthenticationFailureHandlerInterface $failureHandler,
         array $options,
+        private readonly array $authorizationParams = [],
     ) {
         $this->options = array_merge([
             'check_path' => '/oidc/callback',
@@ -71,7 +72,7 @@ class OidcLoginAuthenticator extends AbstractLoginFormAuthenticator
     public function start(Request $request, ?AuthenticationException $authException = null): Response
     {
         if ($this->options['direct_redirect']) {
-            return $this->oidcClient->startAuthorization();
+            return $this->oidcClient->startAuthorization($this->authorizationParams);
         }
 
         return parent::start($request, $authException);
@@ -86,7 +87,7 @@ class OidcLoginAuthenticator extends AbstractLoginFormAuthenticator
             : $this->decodeIdTokenClaims($tokenData['id_token']);
 
         $claim = $this->options['claim'];
-        if (empty($claims[$claim])) {
+        if (!isset($claims[$claim]) || '' === $claims[$claim]) {
             throw new AuthenticationException(\sprintf('The "%s" claim was not found in the OIDC response.', $claim));
         }
 

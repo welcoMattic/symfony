@@ -34,13 +34,11 @@ final class OidcClient
         private readonly OidcDiscovery $discovery,
         private readonly RequestStack $requestStack,
         private readonly string $firewallName,
-        private readonly string $clientId,
-        private readonly string $clientSecret,
+        private readonly OidcClientCredentials $credentials,
         private readonly string $callbackUrl,
         private readonly array $scopes = ['openid'],
         private readonly bool $pkceEnabled = true,
         private readonly string $pkceMethod = 'S256',
-        private readonly string $tokenEndpointAuthMethod = 'client_secret_post',
     ) {
     }
 
@@ -67,7 +65,7 @@ final class OidcClient
 
         $params = [
             'response_type' => 'code',
-            'client_id' => $this->clientId,
+            'client_id' => $this->credentials->getClientId(),
             'redirect_uri' => $this->callbackUrl,
             'scope' => implode(' ', $scopes),
             'state' => $state,
@@ -239,7 +237,7 @@ final class OidcClient
         if (\is_string($aud)) {
             $aud = [$aud];
         }
-        if (!\is_array($aud) || !\in_array($this->clientId, $aud, true)) {
+        if (!\is_array($aud) || !\in_array($this->credentials->getClientId(), $aud, true)) {
             throw new AuthenticationException('ID token audience does not contain the expected client_id.');
         }
 
@@ -264,7 +262,7 @@ final class OidcClient
             'grant_type' => 'authorization_code',
             'code' => $code,
             'redirect_uri' => $this->callbackUrl,
-            'client_id' => $this->clientId,
+            'client_id' => $this->credentials->getClientId(),
         ];
 
         $codeVerifier = $this->getSessionValue('code_verifier');
@@ -284,15 +282,15 @@ final class OidcClient
      */
     private function buildTokenRequestOptions(array $body): array
     {
-        if ('client_secret_basic' === $this->tokenEndpointAuthMethod) {
+        if ('client_secret_basic' === $this->credentials->getTokenEndpointAuthMethod()) {
             return [
-                'auth_basic' => [$this->clientId, $this->clientSecret],
+                'auth_basic' => [$this->credentials->getClientId(), $this->credentials->getClientSecret()],
                 'body' => $body,
             ];
         }
 
         // Default: client_secret_post
-        $body['client_secret'] = $this->clientSecret;
+        $body['client_secret'] = $this->credentials->getClientSecret();
 
         return ['body' => $body];
     }

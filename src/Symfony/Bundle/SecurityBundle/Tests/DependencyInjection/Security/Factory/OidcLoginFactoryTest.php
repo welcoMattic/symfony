@@ -36,6 +36,7 @@ class OidcLoginFactoryTest extends TestCase
         $this->assertTrue($container->hasDefinition('security.authenticator.oidc_login'));
         $this->assertTrue($container->hasDefinition('security.authenticator.oidc_login.main'));
         $this->assertTrue($container->hasDefinition('security.authenticator.oidc_login.discovery.main'));
+        $this->assertTrue($container->hasDefinition('security.authenticator.oidc_login.credentials.main'));
         $this->assertTrue($container->hasDefinition('security.authenticator.oidc_login.client.main'));
     }
 
@@ -113,6 +114,7 @@ class OidcLoginFactoryTest extends TestCase
         $this->assertSame('client_secret_post', $finalizedConfig['token_endpoint_auth_method']);
         $this->assertFalse($finalizedConfig['enable_end_session']);
         $this->assertSame(3600, $finalizedConfig['discovery_cache_ttl']);
+        $this->assertSame([], $finalizedConfig['authorization_params']);
     }
 
     private function processConfig(array $config, OidcLoginFactory $factory): array

@@ -87,6 +87,12 @@ class OidcLoginFactory extends AbstractFactory
                 ->defaultValue(3600)
                 ->info('TTL in seconds for caching the OIDC discovery configuration.')
             ->end()
+            ->arrayNode('authorization_params')
+                ->useAttributeAsKey('name')
+                ->scalarPrototype()->end()
+                ->defaultValue([])
+                ->info('Additional parameters to include in the authorization request (e.g. prompt, max_age, display, ui_locales, acr_values, login_hint).')
+            ->end()
         ;
     }
 
@@ -117,19 +123,26 @@ class OidcLoginFactory extends AbstractFactory
             ->replaceArgument(3, $config['discovery_cache_ttl'])
         ;
 
+        // Client credentials
+        $credentialsId = 'security.authenticator.oidc_login.credentials.'.$firewallName;
+        $container
+            ->setDefinition($credentialsId, new ChildDefinition('security.authenticator.oidc_login.credentials'))
+            ->replaceArgument(0, $config['client_id'])
+            ->replaceArgument(1, $config['client_secret'])
+            ->replaceArgument(2, $config['token_endpoint_auth_method'] ?? 'client_secret_post')
+        ;
+
         // OIDC Client
         $oidcClientId = 'security.authenticator.oidc_login.client.'.$firewallName;
         $container
             ->setDefinition($oidcClientId, new ChildDefinition('security.authenticator.oidc_login.client'))
             ->replaceArgument(1, new Reference($discoveryId))
             ->replaceArgument(3, $firewallName)
-            ->replaceArgument(4, $config['client_id'])
-            ->replaceArgument(5, $config['client_secret'])
-            ->replaceArgument(6, $config['check_path'])
-            ->replaceArgument(7, $config['scopes'] ?? ['openid'])
-            ->replaceArgument(8, $config['pkce']['enabled'] ?? true)
-            ->replaceArgument(9, $config['pkce']['method'] ?? 'S256')
-            ->replaceArgument(10, $config['token_endpoint_auth_method'] ?? 'client_secret_post')
+            ->replaceArgument(4, new Reference($credentialsId))
+            ->replaceArgument(5, $config['check_path'])
+            ->replaceArgument(6, $config['scopes'] ?? ['openid'])
+            ->replaceArgument(7, $config['pkce']['enabled'] ?? true)
+            ->replaceArgument(8, $config['pkce']['method'] ?? 'S256')
         ;
 
         // Authenticator
@@ -141,6 +154,7 @@ class OidcLoginFactory extends AbstractFactory
             ->replaceArgument(2, new Reference($this->createAuthenticationSuccessHandler($container, $firewallName, $config)))
             ->replaceArgument(3, new Reference($this->createAuthenticationFailureHandler($container, $firewallName, $config)))
             ->replaceArgument(4, $options)
+            ->replaceArgument(5, $config['authorization_params'] ?? [])
         ;
 
         // RP-Initiated Logout listener
