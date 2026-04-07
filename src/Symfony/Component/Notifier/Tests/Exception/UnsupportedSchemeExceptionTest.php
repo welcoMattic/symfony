@@ -28,6 +28,7 @@ final class UnsupportedSchemeExceptionTest extends TestCase
         ClassExistsMock::withMockedClasses([
             Bridge\AllMySms\AllMySmsTransportFactory::class => false,
             Bridge\AmazonSns\AmazonSnsTransportFactory::class => false,
+            Bridge\Apns\ApnsTransportFactory::class => false,
             Bridge\Bandwidth\BandwidthTransportFactory::class => false,
             Bridge\Bluesky\BlueskyTransportFactory::class => false,
             Bridge\Brevo\BrevoTransportFactory::class => false,
@@ -125,6 +126,8 @@ final class UnsupportedSchemeExceptionTest extends TestCase
     {
         yield ['allmysms', 'symfony/all-my-sms-notifier'];
         yield ['sns', 'symfony/amazon-sns-notifier'];
+        yield ['apns', 'symfony/apns-notifier'];
+        yield ['apns-sandbox', 'symfony/apns-notifier'];
         yield ['bandwidth', 'symfony/bandwidth-notifier'];
         yield ['bluesky', 'symfony/bluesky-notifier'];
         yield ['brevo', 'symfony/brevo-notifier'];

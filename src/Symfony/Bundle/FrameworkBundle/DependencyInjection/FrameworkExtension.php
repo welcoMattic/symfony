@@ -3154,6 +3154,7 @@ class FrameworkExtension extends Extension
         $classToServices = [
             NotifierBridge\AllMySms\AllMySmsTransportFactory::class => 'notifier.transport_factory.all-my-sms',
             NotifierBridge\AmazonSns\AmazonSnsTransportFactory::class => 'notifier.transport_factory.amazon-sns',
+            NotifierBridge\Apns\ApnsTransportFactory::class => 'notifier.transport_factory.apns',
             NotifierBridge\Bandwidth\BandwidthTransportFactory::class => 'notifier.transport_factory.bandwidth',
             NotifierBridge\Bluesky\BlueskyTransportFactory::class => 'notifier.transport_factory.bluesky',
             NotifierBridge\Brevo\BrevoTransportFactory::class => 'notifier.transport_factory.brevo',

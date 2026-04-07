@@ -30,6 +30,7 @@ final class Transport
     private const FACTORY_CLASSES = [
         Bridge\AllMySms\AllMySmsTransportFactory::class,
         Bridge\AmazonSns\AmazonSnsTransportFactory::class,
+        Bridge\Apns\ApnsTransportFactory::class,
         Bridge\Bandwidth\BandwidthTransportFactory::class,
         Bridge\Bluesky\BlueskyTransportFactory::class,
         Bridge\Brevo\BrevoTransportFactory::class,

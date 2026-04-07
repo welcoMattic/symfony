@@ -58,6 +58,7 @@ return static function (ContainerConfigurator $container) {
 
     $texterFactories = [
         'all-my-sms' => Bridge\AllMySms\AllMySmsTransportFactory::class,
+        'apns' => Bridge\Apns\ApnsTransportFactory::class,
         'bandwidth' => Bridge\Bandwidth\BandwidthTransportFactory::class,
         'brevo' => Bridge\Brevo\BrevoTransportFactory::class,
         'click-send' => Bridge\ClickSend\ClickSendTransportFactory::class,
