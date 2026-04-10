@@ -66,11 +66,19 @@ final class PhpAstExtractor extends AbstractFileExtractor implements ExtractorIn
         $this->prefix = $prefix;
     }
 
-    protected function canBeExtracted(string $file): bool
+    public function canBeExtracted(string $file): bool
     {
+        $regex = $this->toRegex([
+            't(',
+            '->trans(',
+            'TranslatableMessage',
+            'Symfony\Component\Validator\Constraints',
+            'Symfony\Component\Form\AbstractType',
+        ]);
+
         return 'php' === pathinfo($file, \PATHINFO_EXTENSION)
             && $this->isFile($file)
-            && preg_match('/\bt\(|->trans\(|TranslatableMessage|Symfony\\\\Component\\\\Validator\\\\Constraints|Symfony\\\\Component\\\\Form\\\\AbstractType/i', file_get_contents($file));
+            && preg_match($regex, file_get_contents($file));
     }
 
     protected function extractFromDirectory(array|string $resource): iterable|Finder
@@ -80,5 +88,19 @@ final class PhpAstExtractor extends AbstractFileExtractor implements ExtractorIn
         }
 
         return (new Finder())->files()->name('*.php')->in($resource);
+    }
+
+    /**
+     * @param array<int, string> $find
+     */
+    protected function toRegex(array $find): string
+    {
+        // In the regex '\\\\' matches the character \
+        $find = array_map(fn (string $current): string => str_replace('\\', '\\\\', $current), $find);
+
+        // In the regex '\(' matches the character (
+        $find = array_map(fn (string $current): string => str_replace('(', '\(', $current), $find);
+
+        return '/\b'.implode('|', $find).'/i';
     }
 }

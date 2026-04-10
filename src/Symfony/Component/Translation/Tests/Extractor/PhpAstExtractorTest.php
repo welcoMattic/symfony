@@ -183,6 +183,35 @@ final class PhpAstExtractorTest extends TestCase
         $this->assertEquals(['sources' => [$filename.':37']], $catalogue->getMetadata('other-domain-test-no-params-short-array', 'not_messages'));
     }
 
+    public function testExtractFiles()
+    {
+        $fixturesFolder = __DIR__.'/../Fixtures/extractor-php-ast/extract-files/';
+        $extractor = new PhpAstExtractor([new TransMethodVisitor()]);
+        $catalogue = new MessageCatalogue('en');
+
+        $extractor->extract($fixturesFolder, $catalogue);
+
+        $this->assertEquals(['messages' => ['example' => 'example']], $catalogue->all());
+        $this->assertEqualsCanonicalizing([
+            'sources' => [
+                $fixturesFolder.'translation.html.php:1',
+                $fixturesFolder.'translatable-short.html.php:1',
+                $fixturesFolder.'translatable-short-fqn.html.php:1',
+            ],
+        ], $catalogue->getMetadata('example'));
+    }
+
+    public function testCanBeExtracted()
+    {
+        $fixturesFolder = __DIR__.'/../Fixtures/extractor-php-ast/extract-files/';
+        $extractor = new PhpAstExtractor([new TransMethodVisitor()]);
+        $phpFiles = glob($fixturesFolder.'*.php');
+
+        foreach ($phpFiles as $file) {
+            $this->assertTrue($extractor->canBeExtracted($file), \sprintf('Current PHP file: %s', $file));
+        }
+    }
+
     public function testExtractionFromIndentedHeredocNowdoc()
     {
         $catalogue = new MessageCatalogue('en');
