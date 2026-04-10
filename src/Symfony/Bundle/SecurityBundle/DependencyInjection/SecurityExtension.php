@@ -856,7 +856,7 @@ class SecurityExtension extends Extension implements PrependExtensionInterface
         foreach ($this->userProviderFactories as $factory) {
             $key = str_replace('-', '_', $factory->getKey());
 
-            if (!empty($provider[$key])) {
+            if (\is_array($provider[$key] ?? null)) {
                 $factory->create($container, $name, $provider[$key]);
 
                 return $name;
