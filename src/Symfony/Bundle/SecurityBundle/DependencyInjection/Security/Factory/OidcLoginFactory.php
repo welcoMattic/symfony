@@ -42,11 +42,6 @@ class OidcLoginFactory extends AbstractFactory
         $builder = $node->children();
 
         $builder
-            ->arrayNode('scopes')
-                ->scalarPrototype()->end()
-                ->defaultValue(['openid'])
-                ->info('OAuth2 scopes to request during authorization.')
-            ->end()
             ->scalarNode('provider_uri')
                 ->isRequired()
                 ->cannotBeEmpty()
@@ -67,12 +62,22 @@ class OidcLoginFactory extends AbstractFactory
                 ->defaultValue('client_secret_post')
                 ->info('Authentication method for the token endpoint.')
             ->end()
+            ->arrayNode('scopes')
+                ->scalarPrototype()->end()
+                ->defaultValue(['openid'])
+                ->info('OAuth2 scopes to request during authorization.')
+            ->end()
             ->arrayNode('pkce')
                 ->addDefaultsIfNotSet()
                 ->children()
                     ->booleanNode('enabled')->defaultTrue()->info('Enable PKCE (Proof Key for Code Exchange).')->end()
                     ->enumNode('method')->values(['S256', 'plain'])->defaultValue('S256')->info('PKCE code challenge method.')->end()
                 ->end()
+            ->end()
+            ->enumNode('user_data_source')
+                ->values(['userinfo', 'id_token'])
+                ->defaultValue('userinfo')
+                ->info('Source of user claims: "userinfo" fetches from the UserInfo endpoint, "id_token" decodes claims from the ID token.')
             ->end()
             ->booleanNode('enable_end_session')
                 ->defaultFalse()
@@ -85,11 +90,6 @@ class OidcLoginFactory extends AbstractFactory
             ->integerNode('discovery_cache_ttl')
                 ->defaultValue(3600)
                 ->info('TTL in seconds for caching the OIDC discovery configuration.')
-            ->end()
-            ->enumNode('user_data_source')
-                ->values(['userinfo', 'id_token'])
-                ->defaultValue('userinfo')
-                ->info('Source of user claims: "userinfo" fetches from the UserInfo endpoint, "id_token" decodes claims from the ID token.')
             ->end()
             ->arrayNode('authorization_params')
                 ->useAttributeAsKey('name')
@@ -130,19 +130,19 @@ class OidcLoginFactory extends AbstractFactory
         $container
             ->setDefinition($oidcClientId, new ChildDefinition('security.authenticator.oidc_login.client'))
             ->replaceArgument(1, new Reference($discoveryId))
-            ->replaceArgument(3, $firewallName)
-            ->replaceArgument(4, $config['client_id'])
-            ->replaceArgument(5, $config['client_secret'])
-            ->replaceArgument(6, $config['token_endpoint_auth_method'] ?? 'client_secret_post')
-            ->replaceArgument(7, $config['check_path'])
-            ->replaceArgument(8, $config['scopes'] ?? ['openid'])
-            ->replaceArgument(9, $config['pkce']['enabled'] ?? true)
-            ->replaceArgument(10, $config['pkce']['method'] ?? 'S256')
+            ->replaceArgument(2, $config['client_id'])
+            ->replaceArgument(3, $config['client_secret'])
+            ->replaceArgument(4, $config['token_endpoint_auth_method'] ?? 'client_secret_post')
         ;
 
         $authenticatorId = 'security.authenticator.oidc_login.'.$firewallName;
         $options = array_intersect_key($config, $this->options);
         $options['user_data_source'] = $config['user_data_source'];
+        $options['firewall_name'] = $firewallName;
+        $options['scopes'] = $config['scopes'] ?? ['openid'];
+        $options['pkce_enabled'] = $config['pkce']['enabled'] ?? true;
+        $options['pkce_method'] = $config['pkce']['method'] ?? 'S256';
+
         $container
             ->setDefinition($authenticatorId, new ChildDefinition('security.authenticator.oidc_login'))
             ->replaceArgument(1, new Reference($oidcClientId))
@@ -156,7 +156,7 @@ class OidcLoginFactory extends AbstractFactory
             $endSessionListenerId = 'security.authenticator.oidc_login.end_session_listener.'.$firewallName;
             $container
                 ->setDefinition($endSessionListenerId, new ChildDefinition('security.authenticator.oidc_login.end_session_listener'))
-                ->replaceArgument(0, new Reference($oidcClientId))
+                ->replaceArgument(0, new Reference($discoveryId))
                 ->replaceArgument(2, $config['post_logout_redirect_path'])
                 ->addTag('kernel.event_subscriber', ['dispatcher' => 'security.event_dispatcher.'.$firewallName])
             ;

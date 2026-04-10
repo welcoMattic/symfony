@@ -12,11 +12,6 @@
 namespace Symfony\Component\Security\Http\Tests\Authenticator\Oidc;
 
 use PHPUnit\Framework\TestCase;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\RequestStack;
-use Symfony\Component\HttpFoundation\Session\Session;
-use Symfony\Component\HttpFoundation\Session\Storage\MockArraySessionStorage;
-use Symfony\Component\Security\Core\Exception\AuthenticationException;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcClient;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcDiscovery;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -25,293 +20,90 @@ use Symfony\Contracts\HttpClient\ResponseInterface;
 class OidcClientTest extends TestCase
 {
     private OidcDiscovery $discovery;
-    private RequestStack $requestStack;
     private HttpClientInterface $httpClient;
 
     protected function setUp(): void
     {
         $this->discovery = $this->createMock(OidcDiscovery::class);
         $this->discovery->method('getConfiguration')->willReturn([
-            'authorization_endpoint' => 'https://provider.example.com/authorize',
             'token_endpoint' => 'https://provider.example.com/token',
-            'issuer' => 'https://provider.example.com',
-            'jwks_uri' => 'https://provider.example.com/jwks',
             'userinfo_endpoint' => 'https://provider.example.com/userinfo',
-            'end_session_endpoint' => 'https://provider.example.com/logout',
+            'issuer' => 'https://provider.example.com',
         ]);
 
         $this->httpClient = $this->createMock(HttpClientInterface::class);
-
-        $request = new Request();
-        $request->setSession(new Session(new MockArraySessionStorage()));
-
-        $this->requestStack = new RequestStack();
-        $this->requestStack->push($request);
     }
 
-    public function testStartAuthorizationReturnsRedirectResponse()
+    public function testExchangeCodeWithClientSecretPost()
     {
-        $client = $this->createClient();
-
-        $response = $client->startAuthorization();
-
-        $this->assertSame(302, $response->getStatusCode());
-        $location = $response->headers->get('Location');
-        $this->assertStringStartsWith('https://provider.example.com/authorize?', $location);
-
-        $params = [];
-        parse_str(parse_url($location, \PHP_URL_QUERY), $params);
-
-        $this->assertSame('code', $params['response_type']);
-        $this->assertSame('test-client-id', $params['client_id']);
-        $this->assertSame('https://app.example.com/oidc/callback', $params['redirect_uri']);
-        $this->assertStringContainsString('openid', $params['scope']);
-        $this->assertNotEmpty($params['state']);
-        $this->assertNotEmpty($params['nonce']);
-    }
-
-    public function testStartAuthorizationEnforcesOpenidScope()
-    {
-        $client = $this->createClient(scopes: ['profile', 'email']);
-
-        $response = $client->startAuthorization();
-        $location = $response->headers->get('Location');
-        $params = [];
-        parse_str(parse_url($location, \PHP_URL_QUERY), $params);
-
-        $this->assertStringContainsString('openid', $params['scope']);
-    }
-
-    public function testStartAuthorizationWithPkce()
-    {
-        $client = $this->createClient(pkceEnabled: true);
-
-        $response = $client->startAuthorization();
-        $location = $response->headers->get('Location');
-        $params = [];
-        parse_str(parse_url($location, \PHP_URL_QUERY), $params);
-
-        $this->assertSame('S256', $params['code_challenge_method']);
-        $this->assertNotEmpty($params['code_challenge']);
-    }
-
-    public function testStartAuthorizationWithoutPkce()
-    {
-        $client = $this->createClient(pkceEnabled: false);
-
-        $response = $client->startAuthorization();
-        $location = $response->headers->get('Location');
-        $params = [];
-        parse_str(parse_url($location, \PHP_URL_QUERY), $params);
-
-        $this->assertArrayNotHasKey('code_challenge', $params);
-        $this->assertArrayNotHasKey('code_challenge_method', $params);
-    }
-
-    public function testStartAuthorizationStoresStateInSession()
-    {
-        $client = $this->createClient();
-
-        $response = $client->startAuthorization();
-        $location = $response->headers->get('Location');
-        $params = [];
-        parse_str(parse_url($location, \PHP_URL_QUERY), $params);
-
-        $session = $this->requestStack->getSession();
-        $this->assertSame($params['state'], $session->get('_security.oidc_login.main.state'));
-        $this->assertSame($params['nonce'], $session->get('_security.oidc_login.main.nonce'));
-    }
-
-    public function testHandleCallbackExchangesCodeForTokens()
-    {
-        $nonce = bin2hex(random_bytes(16));
-        $session = $this->requestStack->getSession();
-        $state = bin2hex(random_bytes(16));
-        $session->set('_security.oidc_login.main.state', $state);
-        $session->set('_security.oidc_login.main.nonce', $nonce);
-
-        $idToken = $this->buildIdToken(['nonce' => $nonce]);
-
         $response = $this->createMock(ResponseInterface::class);
         $response->method('toArray')->willReturn([
             'access_token' => 'access-123',
-            'id_token' => $idToken,
-            'refresh_token' => 'refresh-789',
-            'expires_in' => 3600,
+            'id_token' => 'id-token-abc',
         ]);
 
         $this->httpClient->expects($this->once())
             ->method('request')
             ->with('POST', 'https://provider.example.com/token', $this->callback(function (array $options) {
                 $this->assertSame('authorization_code', $options['body']['grant_type']);
-                $this->assertSame('auth-code-abc', $options['body']['code']);
+                $this->assertSame('auth-code', $options['body']['code']);
+                $this->assertSame('https://app.example.com/callback', $options['body']['redirect_uri']);
+                $this->assertSame('test-client-id', $options['body']['client_id']);
                 $this->assertSame('test-client-secret', $options['body']['client_secret']);
+                $this->assertArrayNotHasKey('auth_basic', $options);
 
                 return true;
             }))
             ->willReturn($response);
 
-        $client = $this->createClient(pkceEnabled: false);
-        $request = Request::create('/oidc/callback?code=auth-code-abc&state='.$state);
-
-        $tokens = $client->handleCallback($request);
+        $client = $this->createClient();
+        $tokens = $client->exchangeCode('auth-code', 'https://app.example.com/callback');
 
         $this->assertSame('access-123', $tokens['access_token']);
-        $this->assertSame($idToken, $tokens['id_token']);
-        $this->assertSame('refresh-789', $tokens['refresh_token']);
+        $this->assertSame('id-token-abc', $tokens['id_token']);
     }
 
-    public function testHandleCallbackValidatesNonce()
+    public function testExchangeCodeWithClientSecretBasic()
     {
-        $session = $this->requestStack->getSession();
-        $state = bin2hex(random_bytes(16));
-        $session->set('_security.oidc_login.main.state', $state);
-        $session->set('_security.oidc_login.main.nonce', 'expected-nonce');
-
-        $idToken = $this->buildIdToken(['nonce' => 'wrong-nonce']);
-
         $response = $this->createMock(ResponseInterface::class);
         $response->method('toArray')->willReturn([
             'access_token' => 'access-123',
-            'id_token' => $idToken,
+            'id_token' => 'id-token-abc',
         ]);
-        $this->httpClient->method('request')->willReturn($response);
 
-        $client = $this->createClient(pkceEnabled: false);
-        $request = Request::create('/oidc/callback?code=auth-code&state='.$state);
+        $this->httpClient->expects($this->once())
+            ->method('request')
+            ->with('POST', 'https://provider.example.com/token', $this->callback(function (array $options) {
+                $this->assertSame(['test-client-id', 'test-client-secret'], $options['auth_basic']);
+                $this->assertArrayNotHasKey('client_secret', $options['body']);
 
-        $this->expectException(AuthenticationException::class);
-        $this->expectExceptionMessage('nonce');
+                return true;
+            }))
+            ->willReturn($response);
 
-        $client->handleCallback($request);
+        $client = $this->createClient(tokenEndpointAuthMethod: 'client_secret_basic');
+        $client->exchangeCode('auth-code', 'https://app.example.com/callback');
     }
 
-    public function testHandleCallbackValidatesIssuer()
+    public function testExchangeCodeWithCodeVerifier()
     {
-        $nonce = bin2hex(random_bytes(16));
-        $session = $this->requestStack->getSession();
-        $state = bin2hex(random_bytes(16));
-        $session->set('_security.oidc_login.main.state', $state);
-        $session->set('_security.oidc_login.main.nonce', $nonce);
-
-        $idToken = $this->buildIdToken(['nonce' => $nonce, 'iss' => 'https://evil.example.com']);
-
         $response = $this->createMock(ResponseInterface::class);
         $response->method('toArray')->willReturn([
             'access_token' => 'access-123',
-            'id_token' => $idToken,
+            'id_token' => 'id-token-abc',
         ]);
-        $this->httpClient->method('request')->willReturn($response);
 
-        $client = $this->createClient(pkceEnabled: false);
-        $request = Request::create('/oidc/callback?code=auth-code&state='.$state);
+        $this->httpClient->expects($this->once())
+            ->method('request')
+            ->with('POST', 'https://provider.example.com/token', $this->callback(function (array $options) {
+                $this->assertSame('my-code-verifier', $options['body']['code_verifier']);
 
-        $this->expectException(AuthenticationException::class);
-        $this->expectExceptionMessage('issuer');
-
-        $client->handleCallback($request);
-    }
-
-    public function testHandleCallbackValidatesAudience()
-    {
-        $nonce = bin2hex(random_bytes(16));
-        $session = $this->requestStack->getSession();
-        $state = bin2hex(random_bytes(16));
-        $session->set('_security.oidc_login.main.state', $state);
-        $session->set('_security.oidc_login.main.nonce', $nonce);
-
-        $idToken = $this->buildIdToken(['nonce' => $nonce, 'aud' => 'wrong-client-id']);
-
-        $response = $this->createMock(ResponseInterface::class);
-        $response->method('toArray')->willReturn([
-            'access_token' => 'access-123',
-            'id_token' => $idToken,
-        ]);
-        $this->httpClient->method('request')->willReturn($response);
-
-        $client = $this->createClient(pkceEnabled: false);
-        $request = Request::create('/oidc/callback?code=auth-code&state='.$state);
-
-        $this->expectException(AuthenticationException::class);
-        $this->expectExceptionMessage('audience');
-
-        $client->handleCallback($request);
-    }
-
-    public function testHandleCallbackValidatesExpiration()
-    {
-        $nonce = bin2hex(random_bytes(16));
-        $session = $this->requestStack->getSession();
-        $state = bin2hex(random_bytes(16));
-        $session->set('_security.oidc_login.main.state', $state);
-        $session->set('_security.oidc_login.main.nonce', $nonce);
-
-        $idToken = $this->buildIdToken(['nonce' => $nonce, 'exp' => time() - 3600]);
-
-        $response = $this->createMock(ResponseInterface::class);
-        $response->method('toArray')->willReturn([
-            'access_token' => 'access-123',
-            'id_token' => $idToken,
-        ]);
-        $this->httpClient->method('request')->willReturn($response);
-
-        $client = $this->createClient(pkceEnabled: false);
-        $request = Request::create('/oidc/callback?code=auth-code&state='.$state);
-
-        $this->expectException(AuthenticationException::class);
-        $this->expectExceptionMessage('expired');
-
-        $client->handleCallback($request);
-    }
-
-    public function testHandleCallbackWithInvalidState()
-    {
-        $session = $this->requestStack->getSession();
-        $session->set('_security.oidc_login.main.state', 'expected-state');
+                return true;
+            }))
+            ->willReturn($response);
 
         $client = $this->createClient();
-        $request = Request::create('/oidc/callback?code=auth-code&state=wrong-state');
-
-        $this->expectException(AuthenticationException::class);
-        $this->expectExceptionMessage('Invalid OIDC state');
-
-        $client->handleCallback($request);
-    }
-
-    public function testHandleCallbackWithProviderError()
-    {
-        $client = $this->createClient();
-        $request = Request::create('/oidc/callback?error=access_denied&error_description=User+denied+access');
-
-        $this->expectException(AuthenticationException::class);
-        $this->expectExceptionMessage('User denied access');
-
-        $client->handleCallback($request);
-    }
-
-    public function testHandleCallbackClearsSessionState()
-    {
-        $nonce = bin2hex(random_bytes(16));
-        $session = $this->requestStack->getSession();
-        $state = bin2hex(random_bytes(16));
-        $session->set('_security.oidc_login.main.state', $state);
-        $session->set('_security.oidc_login.main.nonce', $nonce);
-
-        $idToken = $this->buildIdToken(['nonce' => $nonce]);
-
-        $response = $this->createMock(ResponseInterface::class);
-        $response->method('toArray')->willReturn([
-            'access_token' => 'access-123',
-            'id_token' => $idToken,
-        ]);
-        $this->httpClient->method('request')->willReturn($response);
-
-        $client = $this->createClient(pkceEnabled: false);
-        $request = Request::create('/oidc/callback?code=auth-code&state='.$state);
-        $client->handleCallback($request);
-
-        $this->assertNull($session->get('_security.oidc_login.main.state'));
-        $this->assertNull($session->get('_security.oidc_login.main.nonce'));
+        $client->exchangeCode('auth-code', 'https://app.example.com/callback', 'my-code-verifier');
     }
 
     public function testFetchUserInfo()
@@ -336,60 +128,41 @@ class OidcClientTest extends TestCase
         $this->assertSame('test@example.com', $claims['email']);
     }
 
-    public function testStartAuthorizationResolvesRelativeCallbackUrl()
+    public function testFetchUserInfoThrowsWhenEndpointMissing()
     {
-        $client = $this->createClient(callbackUrl: '/oidc/callback');
+        $discovery = $this->createMock(OidcDiscovery::class);
+        $discovery->method('getConfiguration')->willReturn([
+            'token_endpoint' => 'https://provider.example.com/token',
+        ]);
 
-        $response = $client->startAuthorization();
-        $location = $response->headers->get('Location');
-        $params = [];
-        parse_str(parse_url($location, \PHP_URL_QUERY), $params);
+        $client = new OidcClient($this->httpClient, $discovery, 'test-client-id', 'test-client-secret');
 
-        $this->assertSame('http://localhost/oidc/callback', $params['redirect_uri']);
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('userinfo endpoint');
+
+        $client->fetchUserInfo('access-token');
     }
 
-    public function testBuildEndSessionUrl()
+    public function testGetClientId()
     {
         $client = $this->createClient();
-        $url = $client->buildEndSessionUrl('my-id-token', 'https://app.example.com/');
-
-        $this->assertStringStartsWith('https://provider.example.com/logout?', $url);
-        $this->assertStringContainsString('id_token_hint=my-id-token', $url);
-        $this->assertStringContainsString('post_logout_redirect_uri=', $url);
+        $this->assertSame('test-client-id', $client->getClientId());
     }
 
-    /**
-     * Builds a fake JWT ID token with the given claims for testing.
-     */
-    private function buildIdToken(array $extraClaims = []): string
+    public function testGetDiscovery()
     {
-        $header = rtrim(strtr(base64_encode(json_encode(['alg' => 'RS256', 'typ' => 'JWT'])), '+/', '-_'), '=');
-        $claims = array_merge([
-            'iss' => 'https://provider.example.com',
-            'aud' => 'test-client-id',
-            'sub' => 'user-42',
-            'exp' => time() + 3600,
-            'iat' => time(),
-        ], $extraClaims);
-        $payload = rtrim(strtr(base64_encode(json_encode($claims)), '+/', '-_'), '=');
-        $signature = rtrim(strtr(base64_encode('fake-signature'), '+/', '-_'), '=');
-
-        return $header.'.'.$payload.'.'.$signature;
+        $client = $this->createClient();
+        $this->assertSame($this->discovery, $client->getDiscovery());
     }
 
-    private function createClient(bool $pkceEnabled = true, array $scopes = ['openid'], string $callbackUrl = 'https://app.example.com/oidc/callback'): OidcClient
+    private function createClient(string $tokenEndpointAuthMethod = 'client_secret_post'): OidcClient
     {
         return new OidcClient(
             httpClient: $this->httpClient,
             discovery: $this->discovery,
-            requestStack: $this->requestStack,
-            firewallName: 'main',
             clientId: 'test-client-id',
             clientSecret: 'test-client-secret',
-            tokenEndpointAuthMethod: 'client_secret_post',
-            callbackUrl: $callbackUrl,
-            scopes: $scopes,
-            pkceEnabled: $pkceEnabled,
+            tokenEndpointAuthMethod: $tokenEndpointAuthMethod,
         );
     }
 }

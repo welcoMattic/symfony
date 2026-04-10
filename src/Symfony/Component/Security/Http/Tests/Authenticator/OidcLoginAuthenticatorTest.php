@@ -14,10 +14,13 @@ namespace Symfony\Component\Security\Http\Tests\Authenticator;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Session\Session;
+use Symfony\Component\HttpFoundation\Session\Storage\MockArraySessionStorage;
 use Symfony\Component\Security\Core\Exception\AuthenticationException;
 use Symfony\Component\Security\Http\Authentication\AuthenticationFailureHandlerInterface;
 use Symfony\Component\Security\Http\Authentication\AuthenticationSuccessHandlerInterface;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcClient;
+use Symfony\Component\Security\Http\Authenticator\Oidc\OidcDiscovery;
 use Symfony\Component\Security\Http\Authenticator\OidcLoginAuthenticator;
 use Symfony\Component\Security\Http\Authenticator\Passport\Badge\RememberMeBadge;
 use Symfony\Component\Security\Http\Authenticator\Passport\Badge\UserBadge;
@@ -27,56 +30,67 @@ use Symfony\Component\Security\Http\HttpUtils;
 class OidcLoginAuthenticatorTest extends TestCase
 {
     private OidcClient $oidcClient;
+    private OidcDiscovery $discovery;
     private AuthenticationSuccessHandlerInterface $successHandler;
     private AuthenticationFailureHandlerInterface $failureHandler;
 
     protected function setUp(): void
     {
+        $this->discovery = $this->createMock(OidcDiscovery::class);
+        $this->discovery->method('getConfiguration')->willReturn([
+            'authorization_endpoint' => 'https://provider.example.com/authorize',
+            'token_endpoint' => 'https://provider.example.com/token',
+            'issuer' => 'https://provider.example.com',
+            'userinfo_endpoint' => 'https://provider.example.com/userinfo',
+        ]);
+
         $this->oidcClient = $this->createMock(OidcClient::class);
+        $this->oidcClient->method('getDiscovery')->willReturn($this->discovery);
+        $this->oidcClient->method('getClientId')->willReturn('test-client-id');
+
         $this->successHandler = $this->createStub(AuthenticationSuccessHandlerInterface::class);
         $this->failureHandler = $this->createStub(AuthenticationFailureHandlerInterface::class);
     }
 
-    public function testSupportsCallbackWithCodeAndState()
+    public function testSupportsCallbackWithCode()
     {
         $authenticator = $this->createAuthenticator();
 
-        $request = Request::create('/oidc/callback?code=abc&state=xyz');
-        $this->assertTrue($authenticator->supports($request));
+        $this->assertTrue($authenticator->supports(Request::create('/oidc/callback?code=abc&state=xyz')));
     }
 
     public function testSupportsCallbackWithError()
     {
         $authenticator = $this->createAuthenticator();
 
-        $request = Request::create('/oidc/callback?error=access_denied');
-        $this->assertTrue($authenticator->supports($request));
+        $this->assertTrue($authenticator->supports(Request::create('/oidc/callback?error=access_denied')));
     }
 
     public function testDoesNotSupportWrongPath()
     {
         $authenticator = $this->createAuthenticator();
 
-        $request = Request::create('/other-path?code=abc&state=xyz');
-        $this->assertFalse($authenticator->supports($request));
+        $this->assertFalse($authenticator->supports(Request::create('/other-path?code=abc')));
     }
 
     public function testDoesNotSupportMissingParams()
     {
         $authenticator = $this->createAuthenticator();
 
-        $request = Request::create('/oidc/callback');
-        $this->assertFalse($authenticator->supports($request));
+        $this->assertFalse($authenticator->supports(Request::create('/oidc/callback')));
     }
 
     public function testAuthenticate()
     {
+        $nonce = bin2hex(random_bytes(16));
+        $state = bin2hex(random_bytes(16));
+        $idToken = $this->buildIdToken(['nonce' => $nonce]);
+
         $this->oidcClient->expects($this->once())
-            ->method('handleCallback')
+            ->method('exchangeCode')
             ->willReturn([
                 'access_token' => 'access-123',
-                'id_token' => 'id-456',
-                'refresh_token' => 'refresh-789',
+                'id_token' => $idToken,
             ]);
 
         $this->oidcClient->expects($this->once())
@@ -89,34 +103,28 @@ class OidcLoginAuthenticatorTest extends TestCase
             ]);
 
         $authenticator = $this->createAuthenticator();
-        $request = Request::create('/oidc/callback?code=abc&state=xyz');
+        $request = $this->createCallbackRequest($state, $nonce);
 
         $passport = $authenticator->authenticate($request);
 
         $this->assertInstanceOf(SelfValidatingPassport::class, $passport);
-
-        $userBadge = $passport->getBadge(UserBadge::class);
-        $this->assertSame('user-42', $userBadge->getUserIdentifier());
-
+        $this->assertSame('user-42', $passport->getBadge(UserBadge::class)->getUserIdentifier());
         $this->assertTrue($passport->hasBadge(RememberMeBadge::class));
-
-        $tokenData = $passport->getAttribute('oidc_token_data');
-        $this->assertSame('access-123', $tokenData['access_token']);
-        $this->assertSame('id-456', $tokenData['id_token']);
+        $this->assertSame('access-123', $passport->getAttribute('oidc_token_data')['access_token']);
     }
 
-    public function testAuthenticateWithoutUserinfo()
+    public function testAuthenticateWithIdTokenDataSource()
     {
-        $header = base64_encode(json_encode(['alg' => 'RS256', 'typ' => 'JWT']));
-        $payload = rtrim(strtr(base64_encode(json_encode([
+        $nonce = bin2hex(random_bytes(16));
+        $state = bin2hex(random_bytes(16));
+        $idToken = $this->buildIdToken([
+            'nonce' => $nonce,
             'sub' => 'user-42',
             'email' => 'test@example.com',
-        ])), '+/', '-_'), '=');
-        $signature = base64_encode('fake-signature');
-        $idToken = $header.'.'.$payload.'.'.$signature;
+        ]);
 
         $this->oidcClient->expects($this->once())
-            ->method('handleCallback')
+            ->method('exchangeCode')
             ->willReturn([
                 'access_token' => 'access-123',
                 'id_token' => $idToken,
@@ -126,23 +134,51 @@ class OidcLoginAuthenticatorTest extends TestCase
             ->method('fetchUserInfo');
 
         $authenticator = $this->createAuthenticator(['user_data_source' => 'id_token']);
-        $request = Request::create('/oidc/callback?code=abc&state=xyz');
+        $request = $this->createCallbackRequest($state, $nonce);
 
         $passport = $authenticator->authenticate($request);
 
         $this->assertSame('user-42', $passport->getBadge(UserBadge::class)->getUserIdentifier());
     }
 
+    public function testAuthenticateWithInvalidState()
+    {
+        $authenticator = $this->createAuthenticator();
+        $request = $this->createCallbackRequest('valid-state', 'nonce');
+        $request->query->set('state', 'wrong-state');
+
+        $this->expectException(AuthenticationException::class);
+        $this->expectExceptionMessage('Invalid OIDC state');
+
+        $authenticator->authenticate($request);
+    }
+
+    public function testAuthenticateWithProviderError()
+    {
+        $authenticator = $this->createAuthenticator();
+        $request = Request::create('/oidc/callback?error=access_denied&error_description=User+denied+access');
+        $request->setSession(new Session(new MockArraySessionStorage()));
+
+        $this->expectException(AuthenticationException::class);
+        $this->expectExceptionMessage('User denied access');
+
+        $authenticator->authenticate($request);
+    }
+
     public function testAuthenticateMissingClaim()
     {
-        $this->oidcClient->method('handleCallback')->willReturn([
+        $nonce = bin2hex(random_bytes(16));
+        $state = bin2hex(random_bytes(16));
+        $idToken = $this->buildIdToken(['nonce' => $nonce]);
+
+        $this->oidcClient->method('exchangeCode')->willReturn([
             'access_token' => 'access-123',
-            'id_token' => 'id-456',
+            'id_token' => $idToken,
         ]);
         $this->oidcClient->method('fetchUserInfo')->willReturn(['email' => 'test@example.com']);
 
         $authenticator = $this->createAuthenticator();
-        $request = Request::create('/oidc/callback?code=abc&state=xyz');
+        $request = $this->createCallbackRequest($state, $nonce);
 
         $this->expectException(AuthenticationException::class);
         $this->expectExceptionMessage('"sub" claim');
@@ -150,38 +186,67 @@ class OidcLoginAuthenticatorTest extends TestCase
         $authenticator->authenticate($request);
     }
 
-    public function testStartWithDirectRedirect()
+    public function testAuthenticateMissingAccessToken()
     {
-        $redirectResponse = new RedirectResponse('https://provider.example.com/authorize?...');
-        $this->oidcClient->expects($this->once())
-            ->method('startAuthorization')
-            ->with([])
-            ->willReturn($redirectResponse);
+        $nonce = bin2hex(random_bytes(16));
+        $state = bin2hex(random_bytes(16));
+        $idToken = $this->buildIdToken(['nonce' => $nonce]);
 
-        $authenticator = $this->createAuthenticator(['direct_redirect' => true]);
-        $request = Request::create('/protected');
+        $this->oidcClient->method('exchangeCode')->willReturn([
+            'id_token' => $idToken,
+        ]);
 
-        $response = $authenticator->start($request);
+        $authenticator = $this->createAuthenticator();
+        $request = $this->createCallbackRequest($state, $nonce);
 
-        $this->assertSame($redirectResponse, $response);
+        $this->expectException(AuthenticationException::class);
+        $this->expectExceptionMessage('access_token');
+
+        $authenticator->authenticate($request);
     }
 
-    public function testStartWithDirectRedirectForwardsAuthorizationParams()
+    public function testAuthenticateClearsSession()
     {
-        $authorizationParams = ['prompt' => 'consent', 'max_age' => '3600'];
+        $nonce = bin2hex(random_bytes(16));
+        $state = bin2hex(random_bytes(16));
+        $idToken = $this->buildIdToken(['nonce' => $nonce]);
 
-        $redirectResponse = new RedirectResponse('https://provider.example.com/authorize?...');
-        $this->oidcClient->expects($this->once())
-            ->method('startAuthorization')
-            ->with($authorizationParams)
-            ->willReturn($redirectResponse);
+        $this->oidcClient->method('exchangeCode')->willReturn([
+            'access_token' => 'access-123',
+            'id_token' => $idToken,
+        ]);
+        $this->oidcClient->method('fetchUserInfo')->willReturn(['sub' => 'user-42']);
 
-        $authenticator = $this->createAuthenticator(['direct_redirect' => true], $authorizationParams);
+        $authenticator = $this->createAuthenticator();
+        $request = $this->createCallbackRequest($state, $nonce);
+        $authenticator->authenticate($request);
+
+        $session = $request->getSession();
+        $this->assertNull($session->get('_security.oidc_login.main.state'));
+        $this->assertNull($session->get('_security.oidc_login.main.nonce'));
+        $this->assertNull($session->get('_security.oidc_login.main.code_verifier'));
+    }
+
+    public function testStartWithDirectRedirect()
+    {
+        $authenticator = $this->createAuthenticator(['direct_redirect' => true]);
         $request = Request::create('/protected');
+        $request->setSession(new Session(new MockArraySessionStorage()));
 
         $response = $authenticator->start($request);
 
-        $this->assertSame($redirectResponse, $response);
+        $this->assertInstanceOf(RedirectResponse::class, $response);
+        $location = $response->getTargetUrl();
+        $this->assertStringStartsWith('https://provider.example.com/authorize?', $location);
+
+        $params = [];
+        parse_str(parse_url($location, \PHP_URL_QUERY), $params);
+        $this->assertSame('code', $params['response_type']);
+        $this->assertSame('test-client-id', $params['client_id']);
+        $this->assertNotEmpty($params['state']);
+        $this->assertNotEmpty($params['nonce']);
+        $this->assertNotEmpty($params['code_challenge']);
+        $this->assertSame('S256', $params['code_challenge_method']);
     }
 
     public function testStartWithoutDirectRedirect()
@@ -193,6 +258,38 @@ class OidcLoginAuthenticatorTest extends TestCase
 
         $this->assertInstanceOf(RedirectResponse::class, $response);
         $this->assertSame('/login', $response->getTargetUrl());
+    }
+
+    private function createCallbackRequest(string $state, string $nonce, ?string $codeVerifier = null): Request
+    {
+        $request = Request::create('/oidc/callback?code=auth-code&state='.$state);
+        $session = new Session(new MockArraySessionStorage());
+        $request->setSession($session);
+
+        $prefix = '_security.oidc_login.main.';
+        $session->set($prefix.'state', $state);
+        $session->set($prefix.'nonce', $nonce);
+        if (null !== $codeVerifier) {
+            $session->set($prefix.'code_verifier', $codeVerifier);
+        }
+
+        return $request;
+    }
+
+    private function buildIdToken(array $extraClaims = []): string
+    {
+        $header = rtrim(strtr(base64_encode(json_encode(['alg' => 'RS256', 'typ' => 'JWT'])), '+/', '-_'), '=');
+        $claims = array_merge([
+            'iss' => 'https://provider.example.com',
+            'aud' => 'test-client-id',
+            'sub' => 'user-42',
+            'exp' => time() + 3600,
+            'iat' => time(),
+        ], $extraClaims);
+        $payload = rtrim(strtr(base64_encode(json_encode($claims)), '+/', '-_'), '=');
+        $signature = rtrim(strtr(base64_encode('fake-signature'), '+/', '-_'), '=');
+
+        return $header.'.'.$payload.'.'.$signature;
     }
 
     private function createAuthenticator(array $options = [], array $authorizationParams = []): OidcLoginAuthenticator

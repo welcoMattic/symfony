@@ -43,21 +43,15 @@ return static function (ContainerConfigurator $container) {
             ->args([
                 service('http_client'),
                 abstract_arg('OIDC discovery'),
-                service('request_stack'),
-                abstract_arg('firewall name'),
                 abstract_arg('client ID'),
                 abstract_arg('client secret'),
                 abstract_arg('token endpoint auth method'),
-                abstract_arg('callback URL'),
-                abstract_arg('scopes'),
-                abstract_arg('PKCE enabled'),
-                abstract_arg('PKCE method'),
             ])
 
         ->set('security.authenticator.oidc_login.end_session_listener', OidcEndSessionListener::class)
             ->abstract()
             ->args([
-                abstract_arg('OIDC client'),
+                abstract_arg('OIDC discovery'),
                 service('security.http_utils'),
                 abstract_arg('post-logout redirect path'),
             ])

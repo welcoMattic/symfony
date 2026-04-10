@@ -15,7 +15,7 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Security\Core\Authentication\Token\TokenInterface;
-use Symfony\Component\Security\Http\Authenticator\Oidc\OidcClient;
+use Symfony\Component\Security\Http\Authenticator\Oidc\OidcDiscovery;
 use Symfony\Component\Security\Http\Event\LogoutEvent;
 use Symfony\Component\Security\Http\EventListener\OidcEndSessionListener;
 use Symfony\Component\Security\Http\HttpUtils;
@@ -24,13 +24,12 @@ class OidcEndSessionListenerTest extends TestCase
 {
     public function testOnLogoutRedirectsToEndSessionEndpoint()
     {
-        $oidcClient = $this->createMock(OidcClient::class);
-        $oidcClient->expects($this->once())
-            ->method('buildEndSessionUrl')
-            ->with('my-id-token', 'http://localhost/')
-            ->willReturn('https://provider.example.com/logout?id_token_hint=my-id-token');
+        $discovery = $this->createMock(OidcDiscovery::class);
+        $discovery->method('getConfiguration')->willReturn([
+            'end_session_endpoint' => 'https://provider.example.com/logout',
+        ]);
 
-        $listener = new OidcEndSessionListener($oidcClient, new HttpUtils(), '/');
+        $listener = new OidcEndSessionListener($discovery, new HttpUtils(), '/');
 
         $token = $this->createMock(TokenInterface::class);
         $token->method('hasAttribute')->with('oidc_id_token')->willReturn(true);
@@ -41,15 +40,16 @@ class OidcEndSessionListenerTest extends TestCase
 
         $response = $event->getResponse();
         $this->assertInstanceOf(RedirectResponse::class, $response);
-        $this->assertStringStartsWith('https://provider.example.com/logout', $response->getTargetUrl());
+        $this->assertStringStartsWith('https://provider.example.com/logout?', $response->getTargetUrl());
+        $this->assertStringContainsString('id_token_hint=my-id-token', $response->getTargetUrl());
     }
 
     public function testOnLogoutDoesNothingWithoutOidcIdToken()
     {
-        $oidcClient = $this->createMock(OidcClient::class);
-        $oidcClient->expects($this->never())->method('buildEndSessionUrl');
+        $discovery = $this->createMock(OidcDiscovery::class);
+        $discovery->expects($this->never())->method('getConfiguration');
 
-        $listener = new OidcEndSessionListener($oidcClient, new HttpUtils(), '/');
+        $listener = new OidcEndSessionListener($discovery, new HttpUtils(), '/');
 
         $token = $this->createMock(TokenInterface::class);
         $token->method('hasAttribute')->with('oidc_id_token')->willReturn(false);
@@ -62,10 +62,10 @@ class OidcEndSessionListenerTest extends TestCase
 
     public function testOnLogoutDoesNothingWithoutToken()
     {
-        $oidcClient = $this->createMock(OidcClient::class);
-        $oidcClient->expects($this->never())->method('buildEndSessionUrl');
+        $discovery = $this->createMock(OidcDiscovery::class);
+        $discovery->expects($this->never())->method('getConfiguration');
 
-        $listener = new OidcEndSessionListener($oidcClient, new HttpUtils(), '/');
+        $listener = new OidcEndSessionListener($discovery, new HttpUtils(), '/');
 
         $event = new LogoutEvent(Request::create('/logout'), null);
         $listener->onLogout($event);

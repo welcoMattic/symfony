@@ -13,7 +13,7 @@ namespace Symfony\Component\Security\Http\EventListener;
 
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpFoundation\RedirectResponse;
-use Symfony\Component\Security\Http\Authenticator\Oidc\OidcClient;
+use Symfony\Component\Security\Http\Authenticator\Oidc\OidcDiscovery;
 use Symfony\Component\Security\Http\Event\LogoutEvent;
 use Symfony\Component\Security\Http\HttpUtils;
 
@@ -28,7 +28,7 @@ use Symfony\Component\Security\Http\HttpUtils;
 final class OidcEndSessionListener implements EventSubscriberInterface
 {
     public function __construct(
-        private readonly OidcClient $oidcClient,
+        private readonly OidcDiscovery $discovery,
         private readonly HttpUtils $httpUtils,
         private readonly ?string $postLogoutRedirectPath = null,
     ) {
@@ -46,12 +46,19 @@ final class OidcEndSessionListener implements EventSubscriberInterface
             return;
         }
 
-        $postLogoutRedirectUri = null;
-        if (null !== $this->postLogoutRedirectPath) {
-            $postLogoutRedirectUri = $this->httpUtils->generateUri($event->getRequest(), $this->postLogoutRedirectPath);
+        $config = $this->discovery->getConfiguration();
+
+        if (!isset($config['end_session_endpoint'])) {
+            throw new \LogicException('The OIDC provider does not expose an end_session_endpoint.');
         }
 
-        $endSessionUrl = $this->oidcClient->buildEndSessionUrl($idToken, $postLogoutRedirectUri);
+        $params = ['id_token_hint' => $idToken];
+
+        if (null !== $this->postLogoutRedirectPath) {
+            $params['post_logout_redirect_uri'] = $this->httpUtils->generateUri($event->getRequest(), $this->postLogoutRedirectPath);
+        }
+
+        $endSessionUrl = $config['end_session_endpoint'].'?'.http_build_query($params, '', '&', \PHP_QUERY_RFC3986);
         $event->setResponse(new RedirectResponse($endSessionUrl));
     }
 
