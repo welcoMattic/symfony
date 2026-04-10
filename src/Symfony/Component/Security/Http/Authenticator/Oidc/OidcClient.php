@@ -66,7 +66,7 @@ final class OidcClient
         $params = [
             'response_type' => 'code',
             'client_id' => $this->credentials->getClientId(),
-            'redirect_uri' => $this->callbackUrl,
+            'redirect_uri' => $this->resolveCallbackUrl(),
             'scope' => implode(' ', $scopes),
             'state' => $state,
             'nonce' => $nonce,
@@ -95,14 +95,6 @@ final class OidcClient
         return new RedirectResponse($authorizationUrl);
     }
 
-    /**
-     * Handles the callback from the OIDC provider by validating the state
-     * and exchanging the authorization code for tokens.
-     *
-     * @return array{access_token: string, id_token: string, refresh_token?: string, expires_in?: int} The token endpoint response
-     *
-     * @throws AuthenticationException If state validation fails or token exchange fails
-     */
     /**
      * Handles the callback from the OIDC provider by validating the state,
      * exchanging the authorization code for tokens, and validating the ID token claims.
@@ -261,7 +253,7 @@ final class OidcClient
         $body = [
             'grant_type' => 'authorization_code',
             'code' => $code,
-            'redirect_uri' => $this->callbackUrl,
+            'redirect_uri' => $this->resolveCallbackUrl(),
             'client_id' => $this->credentials->getClientId(),
         ];
 
@@ -293,6 +285,23 @@ final class OidcClient
         $body['client_secret'] = $this->credentials->getClientSecret();
 
         return ['body' => $body];
+    }
+
+    /**
+     * Resolves the callback URL to a full URL if it is a relative path.
+     */
+    private function resolveCallbackUrl(): string
+    {
+        if (str_starts_with($this->callbackUrl, 'http://') || str_starts_with($this->callbackUrl, 'https://')) {
+            return $this->callbackUrl;
+        }
+
+        $request = $this->requestStack->getCurrentRequest();
+        if (null === $request) {
+            throw new \LogicException('Cannot resolve the OIDC callback URL without a current request.');
+        }
+
+        return $request->getSchemeAndHttpHost().$this->callbackUrl;
     }
 
     private function setSessionValue(string $key, string $value): void

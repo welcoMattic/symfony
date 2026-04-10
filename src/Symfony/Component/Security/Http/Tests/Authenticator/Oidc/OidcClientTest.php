@@ -337,6 +337,18 @@ class OidcClientTest extends TestCase
         $this->assertSame('test@example.com', $claims['email']);
     }
 
+    public function testStartAuthorizationResolvesRelativeCallbackUrl()
+    {
+        $client = $this->createClient(callbackUrl: '/oidc/callback');
+
+        $response = $client->startAuthorization();
+        $location = $response->headers->get('Location');
+        $params = [];
+        parse_str(parse_url($location, \PHP_URL_QUERY), $params);
+
+        $this->assertSame('http://localhost/oidc/callback', $params['redirect_uri']);
+    }
+
     public function testBuildEndSessionUrl()
     {
         $client = $this->createClient();
@@ -366,7 +378,7 @@ class OidcClientTest extends TestCase
         return $header.'.'.$payload.'.'.$signature;
     }
 
-    private function createClient(bool $pkceEnabled = true, array $scopes = ['openid']): OidcClient
+    private function createClient(bool $pkceEnabled = true, array $scopes = ['openid'], string $callbackUrl = 'https://app.example.com/oidc/callback'): OidcClient
     {
         return new OidcClient(
             httpClient: $this->httpClient,
@@ -374,7 +386,7 @@ class OidcClientTest extends TestCase
             requestStack: $this->requestStack,
             firewallName: 'main',
             credentials: new OidcClientCredentials('test-client-id', 'test-client-secret'),
-            callbackUrl: 'https://app.example.com/oidc/callback',
+            callbackUrl: $callbackUrl,
             scopes: $scopes,
             pkceEnabled: $pkceEnabled,
         );
