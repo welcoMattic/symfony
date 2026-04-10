@@ -27,6 +27,7 @@ use Symfony\Component\Translation\Dumper\YamlFileDumper;
 use Symfony\Component\Translation\Extractor\ChainExtractor;
 use Symfony\Component\Translation\Extractor\ExtractorInterface;
 use Symfony\Component\Translation\Extractor\PhpAstExtractor;
+use Symfony\Component\Translation\Extractor\Visitor\BackedEnumVisitor;
 use Symfony\Component\Translation\Extractor\Visitor\ConstraintVisitor;
 use Symfony\Component\Translation\Extractor\Visitor\FormTypeVisitor;
 use Symfony\Component\Translation\Extractor\Visitor\TranslatableMessageVisitor;
@@ -166,6 +167,9 @@ return static function (ContainerConfigurator $container) {
             ->tag('translation.extractor.visitor')
 
         ->set('translation.extractor.visitor.form_type', FormTypeVisitor::class)
+            ->tag('translation.extractor.visitor')
+
+        ->set('translation.extractor.visitor.backed_enum', BackedEnumVisitor::class)
             ->tag('translation.extractor.visitor')
 
         ->set('translation.reader', TranslationReader::class)
