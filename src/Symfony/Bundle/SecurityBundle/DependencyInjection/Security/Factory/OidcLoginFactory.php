@@ -27,13 +27,12 @@ use Symfony\Component\DependencyInjection\Reference;
  */
 class OidcLoginFactory extends AbstractFactory
 {
-    public const PRIORITY = -25;
+    public const int PRIORITY = -25;
 
     public function __construct()
     {
         $this->addOption('direct_redirect', false);
-        $this->addOption('claim', 'sub');
-        $this->addOption('enable_userinfo', true);
+        $this->addOption('user_identifier_claim', 'sub');
     }
 
     public function addConfiguration(NodeDefinition $node): void
@@ -87,6 +86,11 @@ class OidcLoginFactory extends AbstractFactory
                 ->defaultValue(3600)
                 ->info('TTL in seconds for caching the OIDC discovery configuration.')
             ->end()
+            ->enumNode('user_data_source')
+                ->values(['userinfo', 'id_token'])
+                ->defaultValue('userinfo')
+                ->info('Source of user claims: "userinfo" fetches from the UserInfo endpoint, "id_token" decodes claims from the ID token.')
+            ->end()
             ->arrayNode('authorization_params')
                 ->useAttributeAsKey('name')
                 ->scalarPrototype()->end()
@@ -115,7 +119,6 @@ class OidcLoginFactory extends AbstractFactory
 
         $providerUri = rtrim($config['provider_uri'], '/');
 
-        // Discovery service
         $discoveryId = 'security.authenticator.oidc_login.discovery.'.$firewallName;
         $container
             ->setDefinition($discoveryId, new ChildDefinition('security.authenticator.oidc_login.discovery'))
@@ -123,31 +126,23 @@ class OidcLoginFactory extends AbstractFactory
             ->replaceArgument(3, $config['discovery_cache_ttl'])
         ;
 
-        // Client credentials
-        $credentialsId = 'security.authenticator.oidc_login.credentials.'.$firewallName;
-        $container
-            ->setDefinition($credentialsId, new ChildDefinition('security.authenticator.oidc_login.credentials'))
-            ->replaceArgument(0, $config['client_id'])
-            ->replaceArgument(1, $config['client_secret'])
-            ->replaceArgument(2, $config['token_endpoint_auth_method'] ?? 'client_secret_post')
-        ;
-
-        // OIDC Client
         $oidcClientId = 'security.authenticator.oidc_login.client.'.$firewallName;
         $container
             ->setDefinition($oidcClientId, new ChildDefinition('security.authenticator.oidc_login.client'))
             ->replaceArgument(1, new Reference($discoveryId))
             ->replaceArgument(3, $firewallName)
-            ->replaceArgument(4, new Reference($credentialsId))
-            ->replaceArgument(5, $config['check_path'])
-            ->replaceArgument(6, $config['scopes'] ?? ['openid'])
-            ->replaceArgument(7, $config['pkce']['enabled'] ?? true)
-            ->replaceArgument(8, $config['pkce']['method'] ?? 'S256')
+            ->replaceArgument(4, $config['client_id'])
+            ->replaceArgument(5, $config['client_secret'])
+            ->replaceArgument(6, $config['token_endpoint_auth_method'] ?? 'client_secret_post')
+            ->replaceArgument(7, $config['check_path'])
+            ->replaceArgument(8, $config['scopes'] ?? ['openid'])
+            ->replaceArgument(9, $config['pkce']['enabled'] ?? true)
+            ->replaceArgument(10, $config['pkce']['method'] ?? 'S256')
         ;
 
-        // Authenticator
         $authenticatorId = 'security.authenticator.oidc_login.'.$firewallName;
         $options = array_intersect_key($config, $this->options);
+        $options['user_data_source'] = $config['user_data_source'];
         $container
             ->setDefinition($authenticatorId, new ChildDefinition('security.authenticator.oidc_login'))
             ->replaceArgument(1, new Reference($oidcClientId))
@@ -157,7 +152,6 @@ class OidcLoginFactory extends AbstractFactory
             ->replaceArgument(5, $config['authorization_params'] ?? [])
         ;
 
-        // RP-Initiated Logout listener
         if ($config['enable_end_session']) {
             $endSessionListenerId = 'security.authenticator.oidc_login.end_session_listener.'.$firewallName;
             $container

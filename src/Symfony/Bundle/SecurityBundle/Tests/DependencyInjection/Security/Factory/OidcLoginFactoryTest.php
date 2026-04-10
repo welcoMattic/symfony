@@ -36,7 +36,6 @@ class OidcLoginFactoryTest extends TestCase
         $this->assertTrue($container->hasDefinition('security.authenticator.oidc_login'));
         $this->assertTrue($container->hasDefinition('security.authenticator.oidc_login.main'));
         $this->assertTrue($container->hasDefinition('security.authenticator.oidc_login.discovery.main'));
-        $this->assertTrue($container->hasDefinition('security.authenticator.oidc_login.credentials.main'));
         $this->assertTrue($container->hasDefinition('security.authenticator.oidc_login.client.main'));
     }
 
@@ -106,9 +105,9 @@ class OidcLoginFactoryTest extends TestCase
         $this->assertSame('/login_check', $finalizedConfig['check_path']);
         $this->assertSame('/login', $finalizedConfig['login_path']);
         $this->assertSame(['openid'], $finalizedConfig['scopes']);
-        $this->assertSame('sub', $finalizedConfig['claim']);
+        $this->assertSame('sub', $finalizedConfig['user_identifier_claim']);
         $this->assertFalse($finalizedConfig['direct_redirect']);
-        $this->assertTrue($finalizedConfig['enable_userinfo']);
+        $this->assertSame('userinfo', $finalizedConfig['user_data_source']);
         $this->assertTrue($finalizedConfig['pkce']['enabled']);
         $this->assertSame('S256', $finalizedConfig['pkce']['method']);
         $this->assertSame('client_secret_post', $finalizedConfig['token_endpoint_auth_method']);

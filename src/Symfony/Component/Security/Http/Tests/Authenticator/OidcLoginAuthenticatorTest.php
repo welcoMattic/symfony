@@ -125,7 +125,7 @@ class OidcLoginAuthenticatorTest extends TestCase
         $this->oidcClient->expects($this->never())
             ->method('fetchUserInfo');
 
-        $authenticator = $this->createAuthenticator(['enable_userinfo' => false]);
+        $authenticator = $this->createAuthenticator(['user_data_source' => 'id_token']);
         $request = Request::create('/oidc/callback?code=abc&state=xyz');
 
         $passport = $authenticator->authenticate($request);

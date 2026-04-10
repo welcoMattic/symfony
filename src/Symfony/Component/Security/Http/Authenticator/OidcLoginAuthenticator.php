@@ -53,8 +53,8 @@ class OidcLoginAuthenticator extends AbstractLoginFormAuthenticator
             'check_path' => '/oidc/callback',
             'login_path' => '/login',
             'direct_redirect' => false,
-            'claim' => 'sub',
-            'enable_userinfo' => true,
+            'user_identifier_claim' => 'sub',
+            'user_data_source' => 'userinfo',
         ], $options);
     }
 
@@ -82,20 +82,20 @@ class OidcLoginAuthenticator extends AbstractLoginFormAuthenticator
     {
         $tokenData = $this->oidcClient->handleCallback($request);
 
-        $claims = $this->options['enable_userinfo']
+        $claims = 'userinfo' === $this->options['user_data_source']
             ? $this->oidcClient->fetchUserInfo($tokenData['access_token'])
             : $this->decodeIdTokenClaims($tokenData['id_token']);
 
-        $claim = $this->options['claim'];
-        if (!isset($claims[$claim]) || '' === $claims[$claim]) {
-            throw new AuthenticationException(\sprintf('The "%s" claim was not found in the OIDC response.', $claim));
+        $userIdentifierClaim = $this->options['user_identifier_claim'];
+        if (!isset($claims[$userIdentifierClaim]) || '' === $claims[$userIdentifierClaim]) {
+            throw new AuthenticationException(\sprintf('The "%s" claim was not found in the OIDC response.', $userIdentifierClaim));
         }
 
-        $userIdentifier = $claims[$claim];
+        $userIdentifier = $claims[$userIdentifierClaim];
 
-        // FallbackUserLoader can be overridden by a UserProvider via UserProviderListener
-        $userLoader = new FallbackUserLoader(function () use ($claims, $claim) {
-            $claims['user_identifier'] = $claims[$claim];
+        // A UserProvider can override FallbackUserLoader via UserProviderListener
+        $userLoader = new FallbackUserLoader(function () use ($claims, $userIdentifierClaim) {
+            $claims['user_identifier'] = $claims[$userIdentifierClaim];
 
             return $this->createUser($claims);
         });
