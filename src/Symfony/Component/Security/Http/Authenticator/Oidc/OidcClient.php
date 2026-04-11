@@ -23,7 +23,7 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  *
  * @author Mathieu Santostefano <msantostefano@proton.me>
  */
-final class OidcClient
+class OidcClient
 {
     public function __construct(
         private readonly HttpClientInterface $httpClient,

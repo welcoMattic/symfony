@@ -38,6 +38,6 @@ class OidcFactory implements UserProviderFactoryInterface
      */
     public function addConfiguration(NodeDefinition $node): void
     {
-        $node->treatNullLike([])->treatFalseLike([])->addDefaultsIfNotSet();
+        $node->treatNullLike([])->treatFalseLike([]);
     }
 }
