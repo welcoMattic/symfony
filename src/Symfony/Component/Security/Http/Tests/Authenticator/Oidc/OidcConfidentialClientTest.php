@@ -11,13 +11,15 @@
 
 namespace Symfony\Component\Security\Http\Tests\Authenticator\Oidc;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
-use Symfony\Component\Security\Http\Authenticator\Oidc\OidcClient;
+use Symfony\Component\Security\Http\Authenticator\Oidc\OidcConfidentialClient;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcDiscovery;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Symfony\Contracts\HttpClient\ResponseInterface;
 
-class OidcClientTest extends TestCase
+#[AllowMockObjectsWithoutExpectations]
+class OidcConfidentialClientTest extends TestCase
 {
     private OidcDiscovery $discovery;
     private HttpClientInterface $httpClient;
@@ -135,7 +137,7 @@ class OidcClientTest extends TestCase
             'token_endpoint' => 'https://provider.example.com/token',
         ]);
 
-        $client = new OidcClient($this->httpClient, $discovery, 'test-client-id', 'test-client-secret');
+        $client = new OidcConfidentialClient($this->httpClient, $discovery, 'test-client-id', 'test-client-secret');
 
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('userinfo endpoint');
@@ -155,9 +157,9 @@ class OidcClientTest extends TestCase
         $this->assertSame($this->discovery, $client->getDiscovery());
     }
 
-    private function createClient(string $tokenEndpointAuthMethod = 'client_secret_post'): OidcClient
+    private function createClient(string $tokenEndpointAuthMethod = 'client_secret_post'): OidcConfidentialClient
     {
-        return new OidcClient(
+        return new OidcConfidentialClient(
             httpClient: $this->httpClient,
             discovery: $this->discovery,
             clientId: 'test-client-id',

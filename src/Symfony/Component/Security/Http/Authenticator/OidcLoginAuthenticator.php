@@ -11,6 +11,7 @@
 
 namespace Symfony\Component\Security\Http\Authenticator;
 
+use Psr\Container\ContainerInterface;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -21,11 +22,13 @@ use Symfony\Component\Security\Http\Authentication\AuthenticationFailureHandlerI
 use Symfony\Component\Security\Http\Authentication\AuthenticationSuccessHandlerInterface;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcClient;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcIdToken;
+use Symfony\Component\Security\Http\Authenticator\Oidc\PkceMethod\PkceMethodInterface;
 use Symfony\Component\Security\Http\Authenticator\Passport\Badge\RememberMeBadge;
 use Symfony\Component\Security\Http\Authenticator\Passport\Badge\UserBadge;
 use Symfony\Component\Security\Http\Authenticator\Passport\Passport;
 use Symfony\Component\Security\Http\Authenticator\Passport\SelfValidatingPassport;
 use Symfony\Component\Security\Http\Authenticator\Token\PostAuthenticationToken;
+use Symfony\Component\Security\Http\EntryPoint\AuthenticationEntryPointInterface;
 use Symfony\Component\Security\Http\HttpUtils;
 
 /**
@@ -37,17 +40,21 @@ use Symfony\Component\Security\Http\HttpUtils;
  *
  * @final
  */
-class OidcLoginAuthenticator extends AbstractLoginFormAuthenticator
+class OidcLoginAuthenticator extends AbstractAuthenticator implements AuthenticationEntryPointInterface, InteractiveAuthenticatorInterface
 {
     use OidcTrait;
 
     private array $options;
 
+    /**
+     * @param ContainerInterface $pkceMethods A ServiceLocator of {@see PkceMethodInterface} keyed by method name
+     */
     public function __construct(
         private readonly HttpUtils $httpUtils,
         private readonly OidcClient $oidcClient,
         private readonly AuthenticationSuccessHandlerInterface $successHandler,
         private readonly AuthenticationFailureHandlerInterface $failureHandler,
+        private readonly ContainerInterface $pkceMethods,
         array $options,
         private readonly array $authorizationParams = [],
     ) {
@@ -64,11 +71,6 @@ class OidcLoginAuthenticator extends AbstractLoginFormAuthenticator
         ], $options);
     }
 
-    protected function getLoginUrl(Request $request): string
-    {
-        return $this->httpUtils->generateUri($request, $this->options['login_path']);
-    }
-
     public function supports(Request $request): bool
     {
         return $this->httpUtils->checkRequestPath($request, $this->options['check_path'])
@@ -81,7 +83,7 @@ class OidcLoginAuthenticator extends AbstractLoginFormAuthenticator
             return $this->startAuthorization($request);
         }
 
-        return parent::start($request, $authException);
+        return new RedirectResponse($this->getLoginUrl($request));
     }
 
     public function authenticate(Request $request): Passport
@@ -189,6 +191,16 @@ class OidcLoginAuthenticator extends AbstractLoginFormAuthenticator
         return $this->failureHandler->onAuthenticationFailure($request, $exception);
     }
 
+    public function isInteractive(): bool
+    {
+        return true;
+    }
+
+    private function getLoginUrl(Request $request): string
+    {
+        return $this->httpUtils->generateUri($request, $this->options['login_path']);
+    }
+
     private function startAuthorization(Request $request): RedirectResponse
     {
         $session = $request->getSession();
@@ -217,11 +229,16 @@ class OidcLoginAuthenticator extends AbstractLoginFormAuthenticator
         ];
 
         if ($this->options['pkce_enabled']) {
+            $method = $this->options['pkce_method'];
+            if (!$this->pkceMethods->has($method)) {
+                throw new \LogicException(\sprintf('Unknown PKCE method "%s". Register a service implementing "%s" with tag "security.oidc.pkce_method" and matching name.', $method, PkceMethodInterface::class));
+            }
+
             $codeVerifier = $this->generateCodeVerifier();
             $session->set($prefix.'code_verifier', $codeVerifier);
 
-            $params['code_challenge'] = $this->generateCodeChallenge($codeVerifier, $this->options['pkce_method']);
-            $params['code_challenge_method'] = $this->options['pkce_method'];
+            $params['code_challenge'] = $this->pkceMethods->get($method)->createChallenge($codeVerifier);
+            $params['code_challenge_method'] = $method;
         }
 
         $params = array_merge($params, $this->authorizationParams);
@@ -237,15 +254,6 @@ class OidcLoginAuthenticator extends AbstractLoginFormAuthenticator
     private function generateCodeVerifier(): string
     {
         return rtrim(strtr(base64_encode(random_bytes(64)), '+/', '-_'), '=');
-    }
-
-    private function generateCodeChallenge(string $codeVerifier, string $method): string
-    {
-        if ('S256' === $method) {
-            return rtrim(strtr(base64_encode(hash('sha256', $codeVerifier, true)), '+/', '-_'), '=');
-        }
-
-        return $codeVerifier;
     }
 
     private function getSessionPrefix(): string

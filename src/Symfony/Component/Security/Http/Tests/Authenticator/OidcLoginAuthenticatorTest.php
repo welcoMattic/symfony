@@ -11,22 +11,27 @@
 
 namespace Symfony\Component\Security\Http\Tests\Authenticator;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Session\Session;
 use Symfony\Component\HttpFoundation\Session\Storage\MockArraySessionStorage;
 use Symfony\Component\Security\Core\Exception\AuthenticationException;
+use Symfony\Component\DependencyInjection\ServiceLocator;
 use Symfony\Component\Security\Http\Authentication\AuthenticationFailureHandlerInterface;
 use Symfony\Component\Security\Http\Authentication\AuthenticationSuccessHandlerInterface;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcClient;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcDiscovery;
+use Symfony\Component\Security\Http\Authenticator\Oidc\PkceMethod\PlainPkceMethod;
+use Symfony\Component\Security\Http\Authenticator\Oidc\PkceMethod\S256PkceMethod;
 use Symfony\Component\Security\Http\Authenticator\OidcLoginAuthenticator;
 use Symfony\Component\Security\Http\Authenticator\Passport\Badge\RememberMeBadge;
 use Symfony\Component\Security\Http\Authenticator\Passport\Badge\UserBadge;
 use Symfony\Component\Security\Http\Authenticator\Passport\SelfValidatingPassport;
 use Symfony\Component\Security\Http\HttpUtils;
 
+#[AllowMockObjectsWithoutExpectations]
 class OidcLoginAuthenticatorTest extends TestCase
 {
     private OidcClient $oidcClient;
@@ -482,7 +487,7 @@ class OidcLoginAuthenticatorTest extends TestCase
         $response = $authenticator->start($request);
 
         $this->assertInstanceOf(RedirectResponse::class, $response);
-        $this->assertSame('/login', $response->getTargetUrl());
+        $this->assertSame('http://localhost/login', $response->getTargetUrl());
     }
 
     private function createCallbackRequest(string $state, string $nonce, ?string $codeVerifier = null): Request
@@ -519,11 +524,17 @@ class OidcLoginAuthenticatorTest extends TestCase
 
     private function createAuthenticator(array $options = [], array $authorizationParams = []): OidcLoginAuthenticator
     {
+        $pkceMethods = new ServiceLocator([
+            'S256' => fn () => new S256PkceMethod(),
+            'plain' => fn () => new PlainPkceMethod(),
+        ]);
+
         return new OidcLoginAuthenticator(
             new HttpUtils(),
             $this->oidcClient,
             $this->successHandler,
             $this->failureHandler,
+            $pkceMethods,
             $options,
             $authorizationParams,
         );

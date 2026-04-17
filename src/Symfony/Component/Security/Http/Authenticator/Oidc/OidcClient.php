@@ -14,23 +14,23 @@ namespace Symfony\Component\Security\Http\Authenticator\Oidc;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 /**
- * HTTP client for OpenID Connect protocol operations.
+ * Base HTTP client for OpenID Connect protocol operations.
  *
- * Handles token exchange and UserInfo endpoint calls.
+ * Concrete subclasses decide how the client authenticates at the token endpoint
+ * (RFC 6749 §2.3): confidential clients send a secret, public clients rely on PKCE,
+ * other profiles use signed JWTs (OIDC Core §9).
  *
- * @see https://openid.net/specs/openid-connect-core-1_0.html#CodeFlowAuth  OIDC Core 1.0 Section 3.1
- * @see https://datatracker.ietf.org/doc/html/rfc6749                       OAuth 2.0 (RFC 6749)
+ * @see https://openid.net/specs/openid-connect-core-1_0.html#CodeFlowAuth OIDC Core 1.0 §3.1
+ * @see https://datatracker.ietf.org/doc/html/rfc6749                      OAuth 2.0 (RFC 6749)
  *
  * @author Mathieu Santostefano <msantostefano@proton.me>
  */
-class OidcClient
+abstract class OidcClient
 {
     public function __construct(
-        private readonly HttpClientInterface $httpClient,
-        private readonly OidcDiscovery $discovery,
-        private readonly string $clientId,
-        private readonly string $clientSecret,
-        private readonly string $tokenEndpointAuthMethod = 'client_secret_post',
+        protected readonly HttpClientInterface $httpClient,
+        protected readonly OidcDiscovery $discovery,
+        protected readonly string $clientId,
     ) {
     }
 
@@ -54,15 +54,7 @@ class OidcClient
             $body['code_verifier'] = $codeVerifier;
         }
 
-        if ('client_secret_basic' === $this->tokenEndpointAuthMethod) {
-            $options = [
-                'auth_basic' => [$this->clientId, $this->clientSecret],
-                'body' => $body,
-            ];
-        } else {
-            $body['client_secret'] = $this->clientSecret;
-            $options = ['body' => $body];
-        }
+        $options = $this->applyClientAuthentication($body, []);
 
         return $this->httpClient->request('POST', $config['token_endpoint'], $options)->toArray();
     }
@@ -94,4 +86,17 @@ class OidcClient
     {
         return $this->discovery;
     }
+
+    /**
+     * Applies the client authentication scheme to the token endpoint request.
+     *
+     * Subclasses return the final HttpClient options array (typically shaped as
+     * `['body' => ..., 'auth_basic' => ...]`), starting from the given request body.
+     *
+     * @param array<string, mixed> $body    The token request body being built
+     * @param array<string, mixed> $options The HttpClient options being built
+     *
+     * @return array<string, mixed> The final HttpClient options
+     */
+    abstract protected function applyClientAuthentication(array $body, array $options): array;
 }

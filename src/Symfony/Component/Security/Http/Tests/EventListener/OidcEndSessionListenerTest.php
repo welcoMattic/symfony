@@ -11,6 +11,7 @@
 
 namespace Symfony\Component\Security\Http\Tests\EventListener;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -20,6 +21,7 @@ use Symfony\Component\Security\Http\Event\LogoutEvent;
 use Symfony\Component\Security\Http\EventListener\OidcEndSessionListener;
 use Symfony\Component\Security\Http\HttpUtils;
 
+#[AllowMockObjectsWithoutExpectations]
 class OidcEndSessionListenerTest extends TestCase
 {
     public function testOnLogoutRedirectsToEndSessionEndpoint()

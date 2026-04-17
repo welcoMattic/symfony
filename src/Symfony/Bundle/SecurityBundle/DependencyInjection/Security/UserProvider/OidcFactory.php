@@ -38,6 +38,16 @@ class OidcFactory implements UserProviderFactoryInterface
      */
     public function addConfiguration(NodeDefinition $node): void
     {
-        $node->treatNullLike([])->treatFalseLike([]);
+        // Marker key ensures the config is non-empty so the SecurityExtension
+        // recognizes the factory should be invoked. The key itself is unused.
+        $node
+            ->beforeNormalization()
+                ->ifTrue(fn ($v) => null === $v || (\is_array($v) && [] === $v))
+                ->then(fn () => ['enabled' => true])
+            ->end()
+            ->children()
+                ->booleanNode('enabled')->defaultTrue()->info('Internal marker; the OIDC provider has no configuration options.')->end()
+            ->end()
+        ;
     }
 }

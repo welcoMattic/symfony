@@ -71,8 +71,16 @@ class OidcLoginFactory extends AbstractFactory
                 ->addDefaultsIfNotSet()
                 ->children()
                     ->booleanNode('enabled')->defaultTrue()->info('Enable PKCE (Proof Key for Code Exchange).')->end()
-                    ->enumNode('method')->values(['S256', 'plain'])->defaultValue('S256')->info('PKCE code challenge method.')->end()
+                    ->scalarNode('method')->defaultValue('S256')->info('PKCE code challenge method. Must match a service tagged "security.oidc.pkce_method" (builtin: "S256", "plain").')->end()
                 ->end()
+            ->end()
+            ->enumNode('prompt')
+                ->values(['none', 'login', 'consent', 'select_account'])
+                ->info('OIDC "prompt" parameter. For multi-value combinations, use "authorization_params.prompt" instead.')
+            ->end()
+            ->integerNode('max_age')
+                ->min(0)
+                ->info('Max seconds since last end-user authentication. Triggers re-authentication when exceeded.')
             ->end()
             ->enumNode('user_data_source')
                 ->values(['userinfo', 'id_token'])
@@ -143,13 +151,24 @@ class OidcLoginFactory extends AbstractFactory
         $options['pkce_enabled'] = $config['pkce']['enabled'] ?? true;
         $options['pkce_method'] = $config['pkce']['method'] ?? 'S256';
 
+        // First-class params (prompt, max_age) are merged under user-provided
+        // authorization_params so an explicit authorization_params entry still wins.
+        $authorizationParams = [];
+        if (isset($config['prompt'])) {
+            $authorizationParams['prompt'] = $config['prompt'];
+        }
+        if (isset($config['max_age'])) {
+            $authorizationParams['max_age'] = (string) $config['max_age'];
+        }
+        $authorizationParams = array_merge($authorizationParams, $config['authorization_params'] ?? []);
+
         $container
             ->setDefinition($authenticatorId, new ChildDefinition('security.authenticator.oidc_login'))
             ->replaceArgument(1, new Reference($oidcClientId))
             ->replaceArgument(2, new Reference($this->createAuthenticationSuccessHandler($container, $firewallName, $config)))
             ->replaceArgument(3, new Reference($this->createAuthenticationFailureHandler($container, $firewallName, $config)))
-            ->replaceArgument(4, $options)
-            ->replaceArgument(5, $config['authorization_params'] ?? [])
+            ->replaceArgument(5, $options)
+            ->replaceArgument(6, $authorizationParams)
         ;
 
         if ($config['enable_end_session']) {
