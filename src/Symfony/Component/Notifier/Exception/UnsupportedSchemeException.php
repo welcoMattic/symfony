@@ -24,6 +24,14 @@ class UnsupportedSchemeException extends LogicException
             'class' => Bridge\AllMySms\AllMySmsTransportFactory::class,
             'package' => 'symfony/all-my-sms-notifier',
         ],
+        'apns' => [
+            'class' => Bridge\Apns\ApnsTransportFactory::class,
+            'package' => 'symfony/apns-notifier',
+        ],
+        'apns-sandbox' => [
+            'class' => Bridge\Apns\ApnsTransportFactory::class,
+            'package' => 'symfony/apns-notifier',
+        ],
         'bandwidth' => [
             'class' => Bridge\Bandwidth\BandwidthTransportFactory::class,
             'package' => 'symfony/bandwidth-notifier',
