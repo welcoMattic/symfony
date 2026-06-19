@@ -11,7 +11,6 @@
 
 namespace Symfony\Bundle\SecurityBundle\DependencyInjection\Security\UserProvider;
 
-use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
 use Symfony\Component\Config\Definition\Builder\NodeDefinition;
 use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -33,9 +32,6 @@ class OidcFactory implements UserProviderFactoryInterface
         return 'oidc';
     }
 
-    /**
-     * @param ArrayNodeDefinition $node
-     */
     public function addConfiguration(NodeDefinition $node): void
     {
         // Marker key ensures the config is non-empty so the SecurityExtension
