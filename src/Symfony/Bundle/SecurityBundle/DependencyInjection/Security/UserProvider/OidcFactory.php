@@ -38,8 +38,8 @@ class OidcFactory implements UserProviderFactoryInterface
         // recognizes the factory should be invoked. The key itself is unused.
         $node
             ->beforeNormalization()
-                ->ifTrue(fn ($v) => null === $v || (\is_array($v) && [] === $v))
-                ->then(fn () => ['enabled' => true])
+                ->ifTrue(static fn ($v) => null === $v || (\is_array($v) && [] === $v))
+                ->then(static fn () => ['enabled' => true])
             ->end()
             ->children()
                 ->booleanNode('enabled')->defaultTrue()->info('Internal marker; the OIDC provider has no configuration options.')->end()

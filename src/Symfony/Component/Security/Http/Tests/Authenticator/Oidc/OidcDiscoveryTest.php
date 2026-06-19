@@ -28,7 +28,7 @@ class OidcDiscoveryTest extends TestCase
 
     public function testGetConfigurationFetchesAndDecodesTheDocument()
     {
-        $response = $this->createMock(ResponseInterface::class);
+        $response = $this->createStub(ResponseInterface::class);
         $response->method('toArray')->willReturn(self::CONFIGURATION);
 
         $httpClient = $this->createMock(HttpClientInterface::class);
@@ -47,7 +47,7 @@ class OidcDiscoveryTest extends TestCase
         $httpClient = $this->createMock(HttpClientInterface::class);
         $httpClient->expects($this->never())->method('request');
 
-        $cache = $this->createMock(CacheInterface::class);
+        $cache = $this->createStub(CacheInterface::class);
         $cache->method('get')->willReturn(self::CONFIGURATION);
 
         $discovery = new OidcDiscovery($httpClient, $cache, 'https://provider.example.com/.well-known/openid-configuration');
@@ -57,8 +57,8 @@ class OidcDiscoveryTest extends TestCase
 
     private function cacheRunningCallback(): CacheInterface
     {
-        $cache = $this->createMock(CacheInterface::class);
-        $cache->method('get')->willReturnCallback(fn (string $key, callable $callback) => $callback($this->createMock(ItemInterface::class)));
+        $cache = $this->createStub(CacheInterface::class);
+        $cache->method('get')->willReturnCallback(fn (string $key, callable $callback) => $callback($this->createStub(ItemInterface::class)));
 
         return $cache;
     }

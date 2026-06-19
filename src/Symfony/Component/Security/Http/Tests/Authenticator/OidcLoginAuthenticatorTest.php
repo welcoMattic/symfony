@@ -13,12 +13,12 @@ namespace Symfony\Component\Security\Http\Tests\Authenticator;
 
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\DependencyInjection\ServiceLocator;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Session\Session;
 use Symfony\Component\HttpFoundation\Session\Storage\MockArraySessionStorage;
 use Symfony\Component\Security\Core\Exception\AuthenticationException;
-use Symfony\Component\DependencyInjection\ServiceLocator;
 use Symfony\Component\Security\Http\Authentication\AuthenticationFailureHandlerInterface;
 use Symfony\Component\Security\Http\Authentication\AuthenticationSuccessHandlerInterface;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcClient;
@@ -549,8 +549,8 @@ class OidcLoginAuthenticatorTest extends TestCase
     private function createAuthenticator(array $options = [], array $authorizationParams = []): OidcLoginAuthenticator
     {
         $pkceMethods = new ServiceLocator([
-            'S256' => fn () => new S256PkceMethod(),
-            'plain' => fn () => new PlainPkceMethod(),
+            'S256' => static fn () => new S256PkceMethod(),
+            'plain' => static fn () => new PlainPkceMethod(),
         ]);
 
         return new OidcLoginAuthenticator(

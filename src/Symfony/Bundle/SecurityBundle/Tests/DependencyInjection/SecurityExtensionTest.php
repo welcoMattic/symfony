@@ -124,7 +124,7 @@ class SecurityExtensionTest extends TestCase
         ]);
 
         $this->expectException(InvalidConfigurationException::class);
-        $this->expectExceptionMessage('Unrecognized option "some_other" under "security.providers.my_app_provider". Available options are "chain", "custom", "id", "ldap", "memory".');
+        $this->expectExceptionMessage('Unrecognized option "some_other" under "security.providers.my_app_provider". Available options are "chain", "custom", "id", "ldap", "memory", "oidc".');
 
         $container->compile();
     }

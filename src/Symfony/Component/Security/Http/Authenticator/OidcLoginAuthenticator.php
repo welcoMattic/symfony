@@ -95,7 +95,7 @@ class OidcLoginAuthenticator extends AbstractAuthenticator implements Authentica
         $error = $request->query->get('error');
         if (null !== $error) {
             $description = $request->query->get('error_description', $error);
-            throw new AuthenticationException(\sprintf('OIDC provider returned an error: %s', $description));
+            throw new AuthenticationException(\sprintf('OIDC provider returned an error: "%s"', $description));
         }
 
         // Validate state
