@@ -363,6 +363,42 @@ class OidcLoginAuthenticatorTest extends TestCase
         $this->assertNotNull($session->get('_security.oidc_login.main.code_verifier'));
     }
 
+    public function testStartUsesConfiguredResponseTypeAndMode()
+    {
+        $authenticator = $this->createAuthenticator([
+            'direct_redirect' => true,
+            'response_type' => 'code id_token',
+            'response_mode' => 'form_post',
+        ]);
+        $request = Request::create('/protected');
+        $request->setSession(new Session(new MockArraySessionStorage()));
+
+        $response = $authenticator->start($request);
+        $location = $response->getTargetUrl();
+
+        $params = [];
+        parse_str(parse_url($location, \PHP_URL_QUERY), $params);
+
+        $this->assertSame('code id_token', $params['response_type']);
+        $this->assertSame('form_post', $params['response_mode']);
+    }
+
+    public function testStartDefaultsToCodeResponseTypeWithoutResponseMode()
+    {
+        $authenticator = $this->createAuthenticator(['direct_redirect' => true]);
+        $request = Request::create('/protected');
+        $request->setSession(new Session(new MockArraySessionStorage()));
+
+        $response = $authenticator->start($request);
+        $location = $response->getTargetUrl();
+
+        $params = [];
+        parse_str(parse_url($location, \PHP_URL_QUERY), $params);
+
+        $this->assertSame('code', $params['response_type']);
+        $this->assertArrayNotHasKey('response_mode', $params);
+    }
+
     public function testStartForwardsAuthorizationParams()
     {
         $authenticator = $this->createAuthenticator(

@@ -82,6 +82,15 @@ class OidcLoginFactory extends AbstractFactory
                 ->min(0)
                 ->info('Max seconds since last end-user authentication. Triggers re-authentication when exceeded.')
             ->end()
+            ->enumNode('response_type')
+                ->values(['code', 'id_token', 'id_token token', 'code id_token', 'code token', 'code id_token token'])
+                ->defaultValue('code')
+                ->info('OIDC response_type. Non-"code" (implicit/hybrid) values require "response_mode: form_post".')
+            ->end()
+            ->enumNode('response_mode')
+                ->values(['query', 'form_post'])
+                ->info('How the provider returns the authorization response. Must be "form_post" for non-"code" response types (fragment responses are unreadable server-side).')
+            ->end()
             ->enumNode('user_data_source')
                 ->values(['userinfo', 'id_token'])
                 ->defaultValue('userinfo')
@@ -150,6 +159,10 @@ class OidcLoginFactory extends AbstractFactory
         $options['scopes'] = $config['scopes'] ?? ['openid'];
         $options['pkce_enabled'] = $config['pkce']['enabled'] ?? true;
         $options['pkce_method'] = $config['pkce']['method'] ?? 'S256';
+        $options['response_type'] = $config['response_type'] ?? 'code';
+        if (isset($config['response_mode'])) {
+            $options['response_mode'] = $config['response_mode'];
+        }
         if (isset($config['max_age'])) {
             // Passed to the authenticator too, so it can validate the ID token
             // "auth_time" claim against max_age on the callback (OIDC Core §3.1.3.7.12).

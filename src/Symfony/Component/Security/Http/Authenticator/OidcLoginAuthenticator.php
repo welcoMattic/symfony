@@ -68,6 +68,7 @@ class OidcLoginAuthenticator extends AbstractAuthenticator implements Authentica
             'scopes' => ['openid'],
             'pkce_enabled' => true,
             'pkce_method' => 'S256',
+            'response_type' => 'code',
         ], $options);
     }
 
@@ -230,13 +231,17 @@ class OidcLoginAuthenticator extends AbstractAuthenticator implements Authentica
         }
 
         $params = [
-            'response_type' => 'code',
+            'response_type' => $this->options['response_type'],
             'client_id' => $this->oidcClient->getClientId(),
             'redirect_uri' => $this->httpUtils->generateUri($request, $this->options['check_path']),
             'scope' => implode(' ', $scopes),
             'state' => $state,
             'nonce' => $nonce,
         ];
+
+        if (isset($this->options['response_mode'])) {
+            $params['response_mode'] = $this->options['response_mode'];
+        }
 
         if ($this->options['pkce_enabled']) {
             $method = $this->options['pkce_method'];
