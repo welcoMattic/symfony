@@ -31,6 +31,7 @@ use Symfony\Component\Security\Http\AccessToken\AccessTokenHandlerInterface;
 use Symfony\Component\Security\Http\AccessToken\Oidc\Exception\InvalidSignatureException;
 use Symfony\Component\Security\Http\AccessToken\Oidc\Exception\MissingClaimException;
 use Symfony\Component\Security\Http\Authenticator\FallbackUserLoader;
+use Symfony\Component\Security\Http\Authenticator\Oidc\OidcJwks;
 use Symfony\Component\Security\Http\Authenticator\Passport\Badge\UserBadge;
 use Symfony\Contracts\Cache\CacheInterface;
 use Symfony\Contracts\Cache\ItemInterface;
@@ -161,23 +162,14 @@ final class OidcTokenHandler implements AccessTokenHandlerInterface
             }
 
             foreach ($jwkSetResponses as $response) {
-                $headers = $response->getHeaders();
-                if (preg_match('/max-age=(\d+)/', $headers['cache-control'][0] ?? '', $m)) {
-                    $currentTtl = (int) $m[1];
-                } elseif (0 >= $currentTtl = strtotime($headers['expires'][0] ?? '@0') - time()) {
-                    $currentTtl = null;
-                }
+                [$responseKeys, $currentTtl] = OidcJwks::fromResponse($response);
 
                 // Apply the lowest TTL found to ensure all keys in the set are still valid
                 if (null !== $currentTtl && (null === $minTtl || $currentTtl < $minTtl)) {
                     $minTtl = $currentTtl;
                 }
 
-                foreach ($response->toArray()['keys'] as $key) {
-                    if ('sig' === ($key['use'] ?? null)) {
-                        $keys[] = $key;
-                    }
-                }
+                $keys = array_merge($keys, $responseKeys);
             }
 
             if (0 < ($minTtl ?? -1)) {

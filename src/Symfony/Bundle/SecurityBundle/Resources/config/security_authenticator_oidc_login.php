@@ -13,6 +13,7 @@ namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcConfidentialClient;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcDiscovery;
+use Symfony\Component\Security\Http\Authenticator\Oidc\OidcSignatureVerifier;
 use Symfony\Component\Security\Http\Authenticator\Oidc\PkceMethod\PlainPkceMethod;
 use Symfony\Component\Security\Http\Authenticator\Oidc\PkceMethod\S256PkceMethod;
 use Symfony\Component\Security\Http\Authenticator\OidcLoginAuthenticator;
@@ -36,6 +37,17 @@ return static function (ContainerConfigurator $container) {
                 tagged_locator('security.oidc.pkce_method'),
                 abstract_arg('options'),
                 abstract_arg('authorization params'),
+                null, // signature verifier, wired by the factory when enabled
+            ])
+
+        ->set('security.authenticator.oidc_login.signature_verifier', OidcSignatureVerifier::class)
+            ->abstract()
+            ->args([
+                abstract_arg('signature algorithm manager'),
+                abstract_arg('OIDC discovery'),
+                service('cache.app'),
+                service('http_client'),
+                abstract_arg('JWKS cache TTL'),
             ])
 
         ->set('security.authenticator.oidc_login.discovery', OidcDiscovery::class)

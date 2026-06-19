@@ -264,6 +264,39 @@ class OidcIdTokenTest extends TestCase
         OidcIdToken::validateClaims($claims, 'https://provider.example.com', 'my-client-id', null, 300);
     }
 
+    public function testDecodeHeader()
+    {
+        $jwt = $this->buildJwt(['sub' => 'user-42']);
+
+        $this->assertSame('RS256', OidcIdToken::decodeHeader($jwt)['alg']);
+    }
+
+    public function testDecodeHeaderInvalidFormat()
+    {
+        $this->expectException(AuthenticationException::class);
+        $this->expectExceptionMessage('Invalid ID token format');
+
+        OidcIdToken::decodeHeader('not-a-jwt');
+    }
+
+    /**
+     * Test vector from OIDC Core 1.0, Section 3.3.2.11 (at_hash example with RS256).
+     */
+    public function testComputeTokenHashMatchesSpecVector()
+    {
+        $accessToken = 'jHkWEdUXMU1BwAsC4vtUsZwnNvTIxEl0z9K3vx5KF0Y';
+
+        $this->assertSame('77QmUPtjPfzWtF2AnpK9RQ', OidcIdToken::computeTokenHash($accessToken, 'RS256'));
+    }
+
+    public function testComputeTokenHashUnsupportedAlgorithm()
+    {
+        $this->expectException(AuthenticationException::class);
+        $this->expectExceptionMessage('Unsupported ID token algorithm "none"');
+
+        OidcIdToken::computeTokenHash('whatever', 'none');
+    }
+
     private function buildJwt(array $claims = []): string
     {
         $header = rtrim(strtr(base64_encode(json_encode(['alg' => 'RS256', 'typ' => 'JWT'])), '+/', '-_'), '=');

@@ -11,12 +11,15 @@
 
 namespace Symfony\Bundle\SecurityBundle\DependencyInjection\Security\Factory;
 
+use Jose\Component\Core\Algorithm;
 use Symfony\Component\Config\Definition\Builder\NodeDefinition;
 use Symfony\Component\Config\FileLocator;
 use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Exception\LogicException;
 use Symfony\Component\DependencyInjection\Loader\PhpFileLoader;
 use Symfony\Component\DependencyInjection\Reference;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 /**
  * OidcLoginFactory creates services for OpenID Connect Authorization Code Flow authentication.
@@ -90,6 +93,15 @@ class OidcLoginFactory extends AbstractFactory
             ->enumNode('response_mode')
                 ->values(['query', 'form_post'])
                 ->info('How the provider returns the authorization response. Must be "form_post" for non-"code" response types (fragment responses are unreadable server-side).')
+            ->end()
+            ->booleanNode('verify_id_token_signature')
+                ->defaultTrue()
+                ->info('Verify the ID token JWS signature against the provider JWKS. Always enforced for non-"code" response types.')
+            ->end()
+            ->arrayNode('signature_algorithms')
+                ->scalarPrototype()->end()
+                ->defaultValue(['RS256'])
+                ->info('Algorithms accepted to verify the ID token signature (e.g. RS256, ES256, PS256).')
             ->end()
             ->enumNode('user_data_source')
                 ->values(['userinfo', 'id_token'])
@@ -180,7 +192,7 @@ class OidcLoginFactory extends AbstractFactory
         }
         $authorizationParams = array_merge($authorizationParams, $config['authorization_params'] ?? []);
 
-        $container
+        $authenticatorDefinition = $container
             ->setDefinition($authenticatorId, new ChildDefinition('security.authenticator.oidc_login'))
             ->replaceArgument(1, new Reference($oidcClientId))
             ->replaceArgument(2, new Reference($this->createAuthenticationSuccessHandler($container, $firewallName, $config)))
@@ -188,6 +200,28 @@ class OidcLoginFactory extends AbstractFactory
             ->replaceArgument(5, $options)
             ->replaceArgument(6, $authorizationParams)
         ;
+
+        // Signature verification is mandatory when the ID token is delivered through
+        // the user agent (non-"code" response types), and recommended otherwise.
+        $verifySignature = $config['verify_id_token_signature'] || 'code' !== ($config['response_type'] ?? 'code');
+        if ($verifySignature) {
+            if (!ContainerBuilder::willBeAvailable('web-token/jwt-library', Algorithm::class, ['symfony/security-bundle'])) {
+                throw new LogicException('You cannot verify OIDC ID token signatures since the "web-token/jwt-library" package is not installed. Try running "composer require web-token/jwt-library", or set "verify_id_token_signature: false" (allowed for the "code" response type only).');
+            }
+            if (!ContainerBuilder::willBeAvailable('symfony/http-client', HttpClientInterface::class, ['symfony/security-bundle'])) {
+                throw new LogicException('You cannot verify OIDC ID token signatures without the HttpClient component. Try running "composer require symfony/http-client".');
+            }
+
+            $verifierId = 'security.authenticator.oidc_login.signature_verifier.'.$firewallName;
+            $container
+                ->setDefinition($verifierId, new ChildDefinition('security.authenticator.oidc_login.signature_verifier'))
+                ->replaceArgument(0, $config['signature_algorithms'])
+                ->replaceArgument(1, new Reference($discoveryId))
+                ->replaceArgument(4, $config['discovery_cache_ttl'])
+            ;
+
+            $authenticatorDefinition->replaceArgument(7, new Reference($verifierId));
+        }
 
         if ($config['enable_end_session']) {
             $endSessionListenerId = 'security.authenticator.oidc_login.end_session_listener.'.$firewallName;

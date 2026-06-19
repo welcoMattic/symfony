@@ -15,6 +15,7 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\SecurityBundle\DependencyInjection\Security\Factory\OidcLoginFactory;
 use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Reference;
 
 class OidcLoginFactoryTest extends TestCase
 {
@@ -177,6 +178,49 @@ class OidcLoginFactoryTest extends TestCase
             'client_secret' => 'my-client-secret',
             'prompt' => 'bogus',
         ], $factory);
+    }
+
+    public function testSignatureVerifierWiredByDefault()
+    {
+        $container = new ContainerBuilder();
+
+        $config = [
+            'provider_uri' => 'https://provider.example.com',
+            'client_id' => 'my-client-id',
+            'client_secret' => 'my-client-secret',
+            'check_path' => '/oidc/callback',
+        ];
+
+        $factory = new OidcLoginFactory();
+        $finalizedConfig = $this->processConfig($config, $factory);
+        $factory->createAuthenticator($container, 'main', $finalizedConfig, 'userprovider');
+
+        $this->assertTrue($container->hasDefinition('security.authenticator.oidc_login.signature_verifier.main'));
+        $verifier = $container->getDefinition('security.authenticator.oidc_login.signature_verifier.main');
+        $this->assertSame(['RS256'], $verifier->getArgument(0));
+
+        $authenticator = $container->getDefinition('security.authenticator.oidc_login.main');
+        $this->assertInstanceOf(Reference::class, $authenticator->getArgument(7));
+        $this->assertSame('security.authenticator.oidc_login.signature_verifier.main', (string) $authenticator->getArgument(7));
+    }
+
+    public function testSignatureVerificationCanBeDisabledForCodeFlow()
+    {
+        $container = new ContainerBuilder();
+
+        $config = [
+            'provider_uri' => 'https://provider.example.com',
+            'client_id' => 'my-client-id',
+            'client_secret' => 'my-client-secret',
+            'check_path' => '/oidc/callback',
+            'verify_id_token_signature' => false,
+        ];
+
+        $factory = new OidcLoginFactory();
+        $finalizedConfig = $this->processConfig($config, $factory);
+        $factory->createAuthenticator($container, 'main', $finalizedConfig, 'userprovider');
+
+        $this->assertFalse($container->hasDefinition('security.authenticator.oidc_login.signature_verifier.main'));
     }
 
     private function processConfig(array $config, OidcLoginFactory $factory): array

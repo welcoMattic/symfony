@@ -22,6 +22,7 @@ use Symfony\Component\Security\Http\Authentication\AuthenticationFailureHandlerI
 use Symfony\Component\Security\Http\Authentication\AuthenticationSuccessHandlerInterface;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcClient;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcIdToken;
+use Symfony\Component\Security\Http\Authenticator\Oidc\OidcSignatureVerifier;
 use Symfony\Component\Security\Http\Authenticator\Oidc\PkceMethod\PkceMethodInterface;
 use Symfony\Component\Security\Http\Authenticator\Passport\Badge\RememberMeBadge;
 use Symfony\Component\Security\Http\Authenticator\Passport\Badge\UserBadge;
@@ -57,6 +58,7 @@ class OidcLoginAuthenticator extends AbstractAuthenticator implements Authentica
         private readonly ContainerInterface $pkceMethods,
         array $options,
         private readonly array $authorizationParams = [],
+        private readonly ?OidcSignatureVerifier $signatureVerifier = null,
     ) {
         $this->options = array_merge([
             'check_path' => '/oidc/callback',
@@ -131,9 +133,10 @@ class OidcLoginAuthenticator extends AbstractAuthenticator implements Authentica
             throw new AuthenticationException('The token endpoint response does not contain an "access_token".');
         }
 
-        // Validate ID token claims
+        // Validate ID token: verify the signature (default), then the claims.
         $discoveryConfig = $this->oidcClient->getDiscovery()->getConfiguration();
-        $idTokenClaims = OidcIdToken::decode($tokenData['id_token']);
+        $idToken = $tokenData['id_token'];
+        $idTokenClaims = $this->signatureVerifier?->verify($idToken) ?? OidcIdToken::decode($idToken);
         OidcIdToken::validateClaims(
             $idTokenClaims,
             $discoveryConfig['issuer'] ?? '',
@@ -141,6 +144,17 @@ class OidcLoginAuthenticator extends AbstractAuthenticator implements Authentica
             $storedNonce,
             $this->options['max_age'] ?? null,
         );
+
+        // OIDC Core 3.3.2.11: validate c_hash/at_hash against the code/access_token when present.
+        if (isset($idTokenClaims['c_hash']) || isset($idTokenClaims['at_hash'])) {
+            $alg = OidcIdToken::decodeHeader($idToken)['alg'] ?? '';
+            if (isset($idTokenClaims['c_hash']) && !hash_equals(OidcIdToken::computeTokenHash($code, $alg), (string) $idTokenClaims['c_hash'])) {
+                throw new AuthenticationException('The ID token "c_hash" does not match the authorization code.');
+            }
+            if (isset($idTokenClaims['at_hash']) && !hash_equals(OidcIdToken::computeTokenHash($tokenData['access_token'], $alg), (string) $idTokenClaims['at_hash'])) {
+                throw new AuthenticationException('The ID token "at_hash" does not match the access token.');
+            }
+        }
 
         // Fetch user claims
         if ('userinfo' === $this->options['user_data_source']) {

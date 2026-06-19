@@ -56,6 +56,60 @@ final class OidcIdToken
     }
 
     /**
+     * Decodes the protected header of a JWT without signature verification.
+     *
+     * @return array<string, mixed> The decoded header
+     *
+     * @throws AuthenticationException If the token format is invalid
+     */
+    public static function decodeHeader(string $jwt): array
+    {
+        $parts = explode('.', $jwt);
+        if (3 !== \count($parts)) {
+            throw new AuthenticationException('Invalid ID token format.');
+        }
+
+        $header = base64_decode(strtr($parts[0], '-_', '+/'), true);
+        if (false === $header) {
+            throw new AuthenticationException('Unable to decode ID token header.');
+        }
+
+        try {
+            $decoded = json_decode($header, true, 512, \JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            throw new AuthenticationException('Invalid ID token header.');
+        }
+
+        if (!\is_array($decoded)) {
+            throw new AuthenticationException('Invalid ID token header.');
+        }
+
+        return $decoded;
+    }
+
+    /**
+     * Computes the OIDC token hash (c_hash/at_hash) of a value for a given JWS algorithm.
+     *
+     * Per OIDC Core 1.0, Section 3.3.2.11, the hash is the base64url encoding of the
+     * left-most half of the digest produced by the hash algorithm bound to the ID
+     * token "alg" header (e.g. RS256/ES256/PS256 use SHA-256).
+     *
+     * @throws AuthenticationException If the algorithm is not supported for hashing
+     */
+    public static function computeTokenHash(string $value, string $alg): string
+    {
+        $size = (int) substr($alg, -3);
+        if (!\in_array($size, [256, 384, 512], true)) {
+            throw new AuthenticationException(\sprintf('Unsupported ID token algorithm "%s" for token hash validation.', $alg));
+        }
+
+        $digest = hash('sha'.$size, $value, true);
+        $left = substr($digest, 0, \strlen($digest) >> 1);
+
+        return rtrim(strtr(base64_encode($left), '+/', '-_'), '=');
+    }
+
+    /**
      * Validates ID token claims per OIDC Core 1.0, Section 3.1.3.7.
      *
      * @throws AuthenticationException If any claim validation fails

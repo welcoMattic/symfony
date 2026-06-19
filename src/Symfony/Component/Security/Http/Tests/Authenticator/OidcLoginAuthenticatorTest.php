@@ -23,6 +23,7 @@ use Symfony\Component\Security\Http\Authentication\AuthenticationFailureHandlerI
 use Symfony\Component\Security\Http\Authentication\AuthenticationSuccessHandlerInterface;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcClient;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcDiscovery;
+use Symfony\Component\Security\Http\Authenticator\Oidc\OidcIdToken;
 use Symfony\Component\Security\Http\Authenticator\Oidc\PkceMethod\PlainPkceMethod;
 use Symfony\Component\Security\Http\Authenticator\Oidc\PkceMethod\S256PkceMethod;
 use Symfony\Component\Security\Http\Authenticator\OidcLoginAuthenticator;
@@ -213,6 +214,50 @@ class OidcLoginAuthenticatorTest extends TestCase
         $this->expectExceptionMessage('does not match the ID token');
 
         $authenticator->authenticate($request);
+    }
+
+    public function testAuthenticateValidatesMatchingCodeAndAccessTokenHashes()
+    {
+        $nonce = bin2hex(random_bytes(16));
+        $state = bin2hex(random_bytes(16));
+        $idToken = $this->buildIdToken([
+            'nonce' => $nonce,
+            'c_hash' => OidcIdToken::computeTokenHash('auth-code', 'RS256'),
+            'at_hash' => OidcIdToken::computeTokenHash('access-123', 'RS256'),
+        ]);
+
+        $this->oidcClient->method('exchangeCode')->willReturn([
+            'access_token' => 'access-123',
+            'id_token' => $idToken,
+        ]);
+        $this->oidcClient->method('fetchUserInfo')->willReturn(['sub' => 'user-42']);
+
+        $authenticator = $this->createAuthenticator();
+        $passport = $authenticator->authenticate($this->createCallbackRequest($state, $nonce));
+
+        $this->assertSame('user-42', $passport->getBadge(UserBadge::class)->getUserIdentifier());
+    }
+
+    public function testAuthenticateRejectsMismatchingCodeHash()
+    {
+        $nonce = bin2hex(random_bytes(16));
+        $state = bin2hex(random_bytes(16));
+        $idToken = $this->buildIdToken([
+            'nonce' => $nonce,
+            'c_hash' => OidcIdToken::computeTokenHash('a-different-code', 'RS256'),
+        ]);
+
+        $this->oidcClient->method('exchangeCode')->willReturn([
+            'access_token' => 'access-123',
+            'id_token' => $idToken,
+        ]);
+
+        $authenticator = $this->createAuthenticator();
+
+        $this->expectException(AuthenticationException::class);
+        $this->expectExceptionMessage('c_hash');
+
+        $authenticator->authenticate($this->createCallbackRequest($state, $nonce));
     }
 
     public function testAuthenticateMissingAccessToken()
