@@ -73,12 +73,42 @@ class OidcIdTokenTest extends TestCase
         $claims = [
             'iss' => 'https://provider.example.com',
             'aud' => ['other-client', 'my-client-id'],
+            'azp' => 'my-client-id',
             'exp' => time() + 3600,
         ];
 
         OidcIdToken::validateClaims($claims, 'https://provider.example.com', 'my-client-id');
 
         $this->addToAssertionCount(1);
+    }
+
+    public function testValidateClaimsMultipleAudienceMissingAzp()
+    {
+        $claims = [
+            'iss' => 'https://provider.example.com',
+            'aud' => ['other-client', 'my-client-id'],
+            'exp' => time() + 3600,
+        ];
+
+        $this->expectException(AuthenticationException::class);
+        $this->expectExceptionMessage('azp');
+
+        OidcIdToken::validateClaims($claims, 'https://provider.example.com', 'my-client-id');
+    }
+
+    public function testValidateClaimsWrongAzp()
+    {
+        $claims = [
+            'iss' => 'https://provider.example.com',
+            'aud' => 'my-client-id',
+            'azp' => 'another-client',
+            'exp' => time() + 3600,
+        ];
+
+        $this->expectException(AuthenticationException::class);
+        $this->expectExceptionMessage('azp');
+
+        OidcIdToken::validateClaims($claims, 'https://provider.example.com', 'my-client-id');
     }
 
     public function testValidateClaimsWithoutNonce()
@@ -189,6 +219,49 @@ class OidcIdTokenTest extends TestCase
         $this->expectExceptionMessage('nonce');
 
         OidcIdToken::validateClaims($claims, 'https://provider.example.com', 'my-client-id', 'expected-nonce');
+    }
+
+    public function testValidateClaimsWithinMaxAge()
+    {
+        $claims = [
+            'iss' => 'https://provider.example.com',
+            'aud' => 'my-client-id',
+            'exp' => time() + 3600,
+            'auth_time' => time() - 30,
+        ];
+
+        OidcIdToken::validateClaims($claims, 'https://provider.example.com', 'my-client-id', null, 300);
+
+        $this->addToAssertionCount(1);
+    }
+
+    public function testValidateClaimsExceedingMaxAge()
+    {
+        $claims = [
+            'iss' => 'https://provider.example.com',
+            'aud' => 'my-client-id',
+            'exp' => time() + 3600,
+            'auth_time' => time() - 600,
+        ];
+
+        $this->expectException(AuthenticationException::class);
+        $this->expectExceptionMessage('max_age');
+
+        OidcIdToken::validateClaims($claims, 'https://provider.example.com', 'my-client-id', null, 300);
+    }
+
+    public function testValidateClaimsMissingAuthTimeWhenMaxAgeRequested()
+    {
+        $claims = [
+            'iss' => 'https://provider.example.com',
+            'aud' => 'my-client-id',
+            'exp' => time() + 3600,
+        ];
+
+        $this->expectException(AuthenticationException::class);
+        $this->expectExceptionMessage('auth_time');
+
+        OidcIdToken::validateClaims($claims, 'https://provider.example.com', 'my-client-id', null, 300);
     }
 
     private function buildJwt(array $claims = []): string

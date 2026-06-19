@@ -132,17 +132,27 @@ class OidcLoginAuthenticator extends AbstractAuthenticator implements Authentica
 
         // Validate ID token claims
         $discoveryConfig = $this->oidcClient->getDiscovery()->getConfiguration();
+        $idTokenClaims = OidcIdToken::decode($tokenData['id_token']);
         OidcIdToken::validateClaims(
-            OidcIdToken::decode($tokenData['id_token']),
+            $idTokenClaims,
             $discoveryConfig['issuer'] ?? '',
             $this->oidcClient->getClientId(),
             $storedNonce,
+            $this->options['max_age'] ?? null,
         );
 
         // Fetch user claims
-        $claims = 'userinfo' === $this->options['user_data_source']
-            ? $this->oidcClient->fetchUserInfo($tokenData['access_token'])
-            : OidcIdToken::decode($tokenData['id_token']);
+        if ('userinfo' === $this->options['user_data_source']) {
+            $claims = $this->oidcClient->fetchUserInfo($tokenData['access_token']);
+
+            // OIDC Core 1.0, Section 5.3.2: the "sub" of the UserInfo response
+            // MUST exactly match the "sub" of the ID token.
+            if (!isset($claims['sub'], $idTokenClaims['sub']) || !hash_equals((string) $idTokenClaims['sub'], (string) $claims['sub'])) {
+                throw new AuthenticationException('The "sub" claim from the UserInfo endpoint does not match the ID token.');
+            }
+        } else {
+            $claims = $idTokenClaims;
+        }
 
         $userIdentifierClaim = $this->options['user_identifier_claim'];
         if (!isset($claims[$userIdentifierClaim]) || '' === $claims[$userIdentifierClaim]) {

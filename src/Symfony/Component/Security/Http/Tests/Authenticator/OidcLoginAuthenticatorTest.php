@@ -191,6 +191,30 @@ class OidcLoginAuthenticatorTest extends TestCase
         $authenticator->authenticate($request);
     }
 
+    public function testAuthenticateRejectsUserInfoSubMismatch()
+    {
+        $nonce = bin2hex(random_bytes(16));
+        $state = bin2hex(random_bytes(16));
+        $idToken = $this->buildIdToken(['nonce' => $nonce]); // sub => user-42
+
+        $this->oidcClient->method('exchangeCode')->willReturn([
+            'access_token' => 'access-123',
+            'id_token' => $idToken,
+        ]);
+        $this->oidcClient->method('fetchUserInfo')->willReturn([
+            'sub' => 'someone-else',
+            'email' => 'test@example.com',
+        ]);
+
+        $authenticator = $this->createAuthenticator();
+        $request = $this->createCallbackRequest($state, $nonce);
+
+        $this->expectException(AuthenticationException::class);
+        $this->expectExceptionMessage('does not match the ID token');
+
+        $authenticator->authenticate($request);
+    }
+
     public function testAuthenticateMissingAccessToken()
     {
         $nonce = bin2hex(random_bytes(16));

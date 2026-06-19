@@ -60,7 +60,7 @@ final class OidcIdToken
      *
      * @throws AuthenticationException If any claim validation fails
      */
-    public static function validateClaims(array $claims, string $expectedIssuer, string $expectedAudience, ?string $expectedNonce = null): void
+    public static function validateClaims(array $claims, string $expectedIssuer, string $expectedAudience, ?string $expectedNonce = null, ?int $maxAge = null): void
     {
         // Section 3.1.3.7, step 2: iss MUST exactly match the issuer
         if (!isset($claims['iss']) || $claims['iss'] !== $expectedIssuer) {
@@ -76,6 +76,15 @@ final class OidcIdToken
             throw new AuthenticationException('ID token audience does not contain the expected client_id.');
         }
 
+        // Section 3.1.3.7, steps 4-5: with multiple audiences the azp claim is
+        // required and, when present, MUST be the expected client_id.
+        if (\count($aud) > 1 && !isset($claims['azp'])) {
+            throw new AuthenticationException('ID token has multiple audiences but is missing the "azp" claim.');
+        }
+        if (isset($claims['azp']) && !hash_equals($expectedAudience, (string) $claims['azp'])) {
+            throw new AuthenticationException('ID token "azp" claim does not match the expected client_id.');
+        }
+
         // Section 3.1.3.7, step 9: exp MUST not be passed
         if (!isset($claims['exp']) || !is_numeric($claims['exp']) || time() > (int) $claims['exp']) {
             throw new AuthenticationException('ID token has expired.');
@@ -85,6 +94,19 @@ final class OidcIdToken
         if (null !== $expectedNonce) {
             if (!isset($claims['nonce']) || !hash_equals($expectedNonce, $claims['nonce'])) {
                 throw new AuthenticationException('ID token nonce does not match.');
+            }
+        }
+
+        // Section 3.1.3.7, step 12: when max_age was requested, auth_time is
+        // REQUIRED and the elapsed time since end-user authentication must not
+        // exceed it, otherwise re-authentication is required.
+        if (null !== $maxAge) {
+            if (!isset($claims['auth_time']) || !is_numeric($claims['auth_time'])) {
+                throw new AuthenticationException('ID token is missing the "auth_time" claim required when "max_age" is requested.');
+            }
+
+            if (time() - (int) $claims['auth_time'] > $maxAge) {
+                throw new AuthenticationException('ID token "auth_time" exceeds the requested "max_age"; re-authentication is required.');
             }
         }
     }

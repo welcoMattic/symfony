@@ -150,6 +150,11 @@ class OidcLoginFactory extends AbstractFactory
         $options['scopes'] = $config['scopes'] ?? ['openid'];
         $options['pkce_enabled'] = $config['pkce']['enabled'] ?? true;
         $options['pkce_method'] = $config['pkce']['method'] ?? 'S256';
+        if (isset($config['max_age'])) {
+            // Passed to the authenticator too, so it can validate the ID token
+            // "auth_time" claim against max_age on the callback (OIDC Core §3.1.3.7.12).
+            $options['max_age'] = $config['max_age'];
+        }
 
         // First-class params (prompt, max_age) are merged under user-provided
         // authorization_params so an explicit authorization_params entry still wins.
