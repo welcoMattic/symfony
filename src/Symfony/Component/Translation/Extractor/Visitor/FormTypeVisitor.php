@@ -1,0 +1,110 @@
+<?php
+
+/*
+ * This file is part of the Symfony package.
+ *
+ * (c) Fabien Potencier <fabien@symfony.com>
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
+namespace Symfony\Component\Translation\Extractor\Visitor;
+
+use PhpParser\Node;
+use PhpParser\NodeVisitor;
+use Symfony\Component\Form\AbstractType;
+
+/**
+ * @author Mathieu Santostefano <msantostefano@protonmail.com>
+ *
+ * Code mostly comes from https://github.com/php-translation/extractor/blob/master/src/Visitor/Php/Symfony/
+ */
+final class FormTypeVisitor extends AbstractVisitor implements NodeVisitor
+{
+    /**
+     * Stores whether the current class is a form type across visits of all children nodes.
+     */
+    private bool $isFormType = false;
+
+    public function beforeTraverse(array $nodes): ?Node
+    {
+        return null;
+    }
+
+    public function enterNode(Node $node): ?Node
+    {
+        if (!$this->isFormType($node)) {
+            return null;
+        }
+
+        // Visit all array expressions to look for options array
+        if ($node instanceof Node\Expr\Array_) {
+            $this->visitOptionsArray($node);
+        }
+
+        // Visit all "add()" method calls to look for implicit labels
+        if ($node instanceof Node\Expr\MethodCall) {
+            $this->visitAddMethodCall($node);
+        }
+
+        return null;
+    }
+
+    public function leaveNode(Node $node): ?Node
+    {
+        if ($node instanceof Node\Stmt\Class_) {
+            $this->isFormType = false;
+        }
+
+        return null;
+    }
+
+    public function afterTraverse(array $nodes): ?Node
+    {
+        return null;
+    }
+
+    private function visitAddMethodCall(Node\Expr\MethodCall $node): void
+    {
+        if ('add' !== $node->name->name) {
+            return;
+        }
+
+        if (!$node->args[0]->value instanceof Node\Scalar\String_) {
+            return;
+        }
+
+        if (\count($node->args) === 1) {
+            $this->addMessageToCatalogue($this->getStringValue($node->args[0]->value), 'messages', $node->args[0]->value->getStartLine());
+        }
+    }
+
+    private function visitOptionsArray(Node\Expr\Array_ $node): void
+    {
+        $translatableOptions = ['label', 'placeholder', 'help'];
+
+        foreach ($node->items as $item) {
+            if (!$item->key instanceof Node\Scalar\String_ || !\in_array($item->key->value, $translatableOptions, true)) {
+                continue;
+            }
+
+            // If the option is a non-empty string, add it to the messages
+            $stringValue = $this->getStringValue($item->value);
+            if (null !== $stringValue && '' !== $stringValue) {
+                $this->addMessageToCatalogue($stringValue, 'messages', $item->getStartLine());
+            }
+        }
+    }
+
+    private function isFormType(Node $node): bool
+    {
+        if ($node instanceof Node\Stmt\Class_) {
+            if (null !== $node->extends && $node->extends->isFullyQualified() && AbstractType::class === $node->extends->name) {
+                $this->isFormType = true;
+            }
+        }
+
+        return $this->isFormType;
+    }
+}
