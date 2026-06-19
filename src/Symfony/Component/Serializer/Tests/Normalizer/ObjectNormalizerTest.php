@@ -28,6 +28,7 @@ use Symfony\Component\Serializer\Attribute\Ignore;
 use Symfony\Component\Serializer\Exception\ExtraAttributesException;
 use Symfony\Component\Serializer\Exception\LogicException;
 use Symfony\Component\Serializer\Exception\NotNormalizableValueException;
+use Symfony\Component\Serializer\Exception\PartialDenormalizationException;
 use Symfony\Component\Serializer\Exception\RuntimeException;
 use Symfony\Component\Serializer\Exception\UnexpectedValueException;
 use Symfony\Component\Serializer\Mapping\ClassDiscriminatorFromClassMetadata;
@@ -39,6 +40,7 @@ use Symfony\Component\Serializer\NameConverter\CamelCaseToSnakeCaseNameConverter
 use Symfony\Component\Serializer\NameConverter\MetadataAwareNameConverter;
 use Symfony\Component\Serializer\NameConverter\NameConverterInterface;
 use Symfony\Component\Serializer\Normalizer\AbstractNormalizer;
+use Symfony\Component\Serializer\Normalizer\AbstractObjectNormalizer;
 use Symfony\Component\Serializer\Normalizer\ArrayDenormalizer;
 use Symfony\Component\Serializer\Normalizer\DateTimeNormalizer;
 use Symfony\Component\Serializer\Normalizer\DenormalizerInterface;
@@ -49,7 +51,9 @@ use Symfony\Component\Serializer\SerializerInterface;
 use Symfony\Component\Serializer\Tests\Fixtures\Attributes\GroupDummy;
 use Symfony\Component\Serializer\Tests\Fixtures\Attributes\GroupDummyWithIsPrefixedProperty;
 use Symfony\Component\Serializer\Tests\Fixtures\CircularReferenceDummy;
+use Symfony\Component\Serializer\Tests\Fixtures\DummyFirstChildQuux;
 use Symfony\Component\Serializer\Tests\Fixtures\DummyPrivatePropertyWithoutGetter;
+use Symfony\Component\Serializer\Tests\Fixtures\DummyWithObjectConstructor;
 use Symfony\Component\Serializer\Tests\Fixtures\DummyWithUnion;
 use Symfony\Component\Serializer\Tests\Fixtures\MagicSetDummy;
 use Symfony\Component\Serializer\Tests\Fixtures\OtherSerializedNameDummy;
@@ -506,6 +510,33 @@ class ObjectNormalizerTest extends TestCase
         $normalizer->denormalize($data, DummyWithUnion::class, 'xml', [
             AbstractNormalizer::ALLOW_EXTRA_ATTRIBUTES => false,
         ]);
+    }
+
+    public function testTypeMismatchOnTypedPropertyIsCollectedAsDenormalizationError()
+    {
+        $extractor = new PropertyInfoExtractor([], [new PhpDocExtractor(), new ReflectionExtractor()]);
+        $serializer = new Serializer([new ObjectNormalizer(null, null, null, $extractor)]);
+
+        try {
+            $serializer->denormalize(
+                ['name' => ['oops']],
+                ObjectTypedDummy::class,
+                null,
+                [
+                    DenormalizerInterface::COLLECT_DENORMALIZATION_ERRORS => true,
+                    AbstractObjectNormalizer::DISABLE_TYPE_ENFORCEMENT => true,
+                ],
+            );
+
+            $this->fail(\sprintf('Expected a "%s".', PartialDenormalizationException::class));
+        } catch (PartialDenormalizationException $e) {
+            $this->assertCount(1, $e->getNotNormalizableValueErrors());
+            $error = $e->getNotNormalizableValueErrors()[0];
+            $this->assertInstanceOf(NotNormalizableValueException::class, $error);
+            $this->assertSame('name', $error->getPath());
+            $this->assertSame('array', $error->getCurrentType());
+            $this->assertSame([class_exists(InvalidTypeException::class) ? 'string' : 'unknown'], $error->getExpectedTypes());
+        }
     }
 
     // attributes
@@ -1160,7 +1191,8 @@ class ObjectNormalizerTest extends TestCase
 
         return new ObjectNormalizer(
             $classMetadataFactory,
-            propertyAccessor: $propertyAccessorBuilder->getPropertyAccessor(),
+            null,
+            $propertyAccessorBuilder->getPropertyAccessor(),
         );
     }
 
@@ -1313,6 +1345,15 @@ class ObjectNormalizerTest extends TestCase
 
         // with groups - should only include group-specific property, ignored method should never appear
         $this->assertSame(['visibleGroup' => 'visible_group'], $normalizer->normalize($object, null, ['groups' => ['group1']]));
+    }
+
+    public function testIgnoreAttributeOnGetterWithSameNameAsProperty()
+    {
+        $normalizer = new ObjectNormalizer(new ClassMetadataFactory(new AttributeLoader()));
+
+        $object = new ObjectWithIgnoredGetterSameNameAsProperty();
+
+        $this->assertSame(['name' => 'foo'], $normalizer->normalize($object));
     }
 
     /**
@@ -1517,6 +1558,20 @@ class ObjectNormalizerTest extends TestCase
         $normalized = $normalizer->normalize($obj);
 
         $this->assertSame(['name' => 'John', 'foo' => 42, 'hello' => 'Hello i am John'], $normalized);
+    }
+
+    public function testDenormalizeWithAlreadyInstantiatedObject()
+    {
+        $nested = new DummyFirstChildQuux('foo');
+        $obj = $this->normalizer->denormalize(
+            ['nested' => $nested],
+            DummyWithObjectConstructor::class,
+            'any'
+        );
+
+        $this->assertInstanceOf(DummyWithObjectConstructor::class, $obj);
+        $this->assertSame($nested, $obj->nested);
+        $this->assertSame('foo', $obj->nested->getValue());
     }
 }
 
@@ -2162,6 +2217,17 @@ class ObjectWithIgnoredMethodSameNameAsPropertyWithGroups
     }
 }
 
+class ObjectWithIgnoredGetterSameNameAsProperty
+{
+    public string $name = 'foo';
+
+    #[Ignore]
+    public function getName(): string
+    {
+        return $this->name;
+    }
+}
+
 class NameConverterTestDummy
 {
     public function __construct(
@@ -2243,4 +2309,9 @@ class NullableArrayItemDummy
         public string $name,
     ) {
     }
+}
+
+class ObjectTypedDummy
+{
+    public string $name;
 }

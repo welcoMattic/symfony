@@ -211,13 +211,14 @@ class DebugClassLoader
     /**
      * Wraps all autoloaders.
      *
-     * @param array<string, string>|null $deprecationsNamespacesMapping Overrides the vendor-boundary detection used to
-     *                                                                  decide whether deprecation notices are emitted.
-     *                                                                  Each key is a fully-qualified class name or
-     *                                                                  namespace prefix of the class being loaded;
-     *                                                                  the corresponding value is the vendor string it
-     *                                                                  will be compared against instead of its natural
-     *                                                                  first namespace segment.
+     * @param array<string, string>|null $deprecationsNamespacesMapping Overrides the vendor-boundary detection used to decide whether deprecation notices
+     *                                                                  are emitted. Each key is a fully-qualified class name or namespace prefix of the
+     *                                                                  class being loaded; the corresponding value is the vendor string it will be
+     *                                                                  compared against instead of its natural first namespace segment. Classes resolving
+     *                                                                  to the same value (whether through this mapping or through a natural first-segment
+     *                                                                  collision with such a value) are treated as belonging to the same vendor and will
+     *                                                                  not emit deprecation or @internal notices against each other; pick a token unlikely
+     *                                                                  to clash with any real vendor name to avoid silent merges.
      *                                                                  Pass null (default) to use the first namespace segment as vendor name.
      */
     public static function enable(/* ?array $deprecationsNamespacesMapping = null */): void
@@ -233,6 +234,7 @@ class DebugClassLoader
         }
 
         self::$namespaceRemappings = $deprecationsNamespacesMapping;
+        self::$vendorPrefixCache = [];
 
         foreach ($functions as $function) {
             spl_autoload_unregister($function);
@@ -436,7 +438,7 @@ class DebugClassLoader
                 }
             }
 
-            if ($refl->isInterface() && isset($doc['method'])) {
+            if (($refl->isInterface() || $refl->isAbstract()) && isset($doc['method'])) {
                 foreach ($doc['method'] as $name => [$static, $returnType, $signature, $description]) {
                     if ($refl->hasMethod($static ? '__callStatic' : '__call')) {
                         // When the interface has "virtual" @method declarations but at the same time contains a __call/__callStatic magic method,
@@ -444,6 +446,11 @@ class DebugClassLoader
                         // "@method" annotations never intend to actually add the method to the interface, but are used to document the "virtual"
                         // API provided by the interface through the technical implementation of magic calls. This might cause false negatives
                         // (missing notices) in the case that such interfaces are later amended with actual (real) methods.
+                        continue;
+                    }
+                    if ($refl->hasMethod($name)) {
+                        // The abstract class already declares the method (abstract or with a default implementation),
+                        // so the @method annotation is just documentation; no deprecation should be triggered for subclasses.
                         continue;
                     }
                     self::$method[$class][] = [$class, $static, $returnType, $name.$signature, $description];
@@ -500,7 +507,7 @@ class DebugClassLoader
                     } else {
                         self::$method[$class] = self::$method[$use];
                     }
-                } elseif (!$refl->isInterface()) {
+                } else {
                     if ($this->areFromTheSameVendor($class, $use)
                         && str_starts_with($className, 'Symfony\\')
                         && (!class_exists(InstalledVersions::class)

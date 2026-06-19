@@ -32,6 +32,8 @@ use Symfony\Contracts\HttpClient\ResponseInterface;
  */
 final class CrowdinProvider implements ProviderInterface
 {
+    private const IMPORT_POLL_TIMEOUT_SECONDS = 300;
+
     public function __construct(
         private readonly HttpClientInterface $client,
         private readonly LoaderInterface $loader,
@@ -52,56 +54,52 @@ final class CrowdinProvider implements ProviderInterface
         $fileList = $this->getFileList();
         $languageMapping = $this->getLanguageMapping();
 
+        $defaultLocaleCatalogue = $translatorBag->getCatalogue($this->defaultLocale);
+        foreach ($defaultLocaleCatalogue->getDomains() as $domain) {
+            $content = $this->xliffFileDumper->formatCatalogue($defaultLocaleCatalogue, $domain, ['default_locale' => $this->defaultLocale]);
+
+            if ($fileId = $this->getFileIdByDomain($fileList, $domain)) {
+                $sourceFileInfo = $this->downloadSourceFile($fileId);
+                $sourceFile = $this->client->request('GET', $sourceFileInfo->toArray()['data']['url']);
+
+                $providerCatalogue = $this->loader->load($sourceFile->getContent(), $this->defaultLocale, $domain);
+                $allMessages = array_merge($providerCatalogue->all($domain), $defaultLocaleCatalogue->all($domain));
+
+                $content = $this->xliffFileDumper->formatCatalogue(
+                    new MessageCatalogue($this->defaultLocale, [$domain => $allMessages]),
+                    $domain,
+                    ['default_locale' => $this->defaultLocale],
+                );
+
+                $this->updateFile($fileId, $domain, $content);
+            } else {
+                $file = $this->addFile($domain, $content);
+
+                $fileList[$file['name']] = $file['id'];
+            }
+        }
+
         $responses = [];
 
         foreach ($translatorBag->getCatalogues() as $catalogue) {
             $locale = $catalogue->getLocale();
 
+            if ($locale === $this->defaultLocale) {
+                continue;
+            }
+
             foreach ($catalogue->getDomains() as $domain) {
-                if (0 === \count($catalogue->all($domain))) {
+                if (!$catalogue->all($domain)) {
                     continue;
                 }
 
-                $content = $this->xliffFileDumper->formatCatalogue($catalogue, $domain, ['default_locale' => $this->defaultLocale]);
-                $fileId = $this->getFileIdByDomain($fileList, $domain);
-
-                if ($catalogue->getLocale() === $this->defaultLocale) {
-                    if (!$fileId) {
-                        $file = $this->addFile($domain, $content);
-                    } else {
-                        $sourceFileInfo = $this->downloadSourceFile($fileId);
-                        $sourceFile = $this->client->request('GET', $sourceFileInfo->toArray()['data']['url']);
-
-                        $providerCatalogue = $this->loader->load(
-                            $sourceFile->getContent(),
-                            $this->defaultLocale,
-                            $domain
-                        );
-                        $allMessages = array_merge(
-                            $providerCatalogue->all($domain),
-                            $catalogue->all($domain)
-                        );
-
-                        $content = $this->xliffFileDumper->formatCatalogue(
-                            new MessageCatalogue($this->defaultLocale, [$domain => $allMessages]),
-                            $domain,
-                            ['default_locale' => $this->defaultLocale],
-                        );
-
-                        $file = $this->updateFile($fileId, $domain, $content);
-                    }
-
-                    if (!$file) {
-                        continue;
-                    }
-
-                    $fileList[$file['name']] = $file['id'];
-                } else {
-                    if (!$fileId) {
-                        continue;
-                    }
-
-                    $responses[] = $this->importTranslations($fileId, $domain, $content, $languageMapping[$locale] ?? $locale);
+                if ($fileId = $this->getFileIdByDomain($fileList, $domain)) {
+                    $responses[] = $this->importTranslations(
+                        $fileId,
+                        $domain,
+                        $this->xliffFileDumper->formatCatalogue($catalogue, $domain, ['default_locale' => $this->defaultLocale]),
+                        $languageMapping[$locale] ?? $locale,
+                    );
                 }
             }
         }
@@ -111,6 +109,8 @@ final class CrowdinProvider implements ProviderInterface
 
     private function waitForImportCompletion(array $responses): void
     {
+        $deadline = hrtime(true) + self::IMPORT_POLL_TIMEOUT_SECONDS * 1_000_000_000;
+
         while ($responses) {
             foreach ($responses as $index => $response) {
                 if (202 !== $statusCode = $response->getStatusCode()) {
@@ -134,13 +134,14 @@ final class CrowdinProvider implements ProviderInterface
                 }
 
                 $importStatusData = $importStatusResponse->toArray()['data'];
+                $status = $importStatusData['status'] ?? 'unknown';
 
-                if ('finished' === $importStatusData['status']) {
+                if ('finished' === $status) {
                     unset($responses[$index]);
                     continue;
                 }
 
-                if ('failed' === $importStatusData['status']) {
+                if ('failed' === $status) {
                     $message = $importStatusData['attributes']['error']['message'] ?? null;
 
                     if ($message) {
@@ -150,12 +151,24 @@ final class CrowdinProvider implements ProviderInterface
                     }
 
                     unset($responses[$index]);
+                    continue;
+                }
+
+                if (!\in_array($status, ['in_progress', 'created'], true)) {
+                    $this->logger->error(\sprintf('Unable to upload translations to Crowdin: unexpected import status "%s".', $status));
+                    unset($responses[$index]);
                 }
             }
 
-            if ($responses) {
-                sleep(1);
+            if (!$responses) {
+                break;
             }
+
+            if (hrtime(true) >= $deadline) {
+                throw new ProviderException(\sprintf('Timed out after %d seconds while waiting for Crowdin to finish importing translations.', self::IMPORT_POLL_TIMEOUT_SECONDS), reset($responses));
+            }
+
+            sleep(1);
         }
     }
 
@@ -268,17 +281,15 @@ final class CrowdinProvider implements ProviderInterface
         return $filesMap[\sprintf('%s.%s', $domain, 'xlf')] ?? null;
     }
 
+    /**
+     * @see https://support.crowdin.com/developer/api/v2/#tag/Source-Files/operation/api.projects.files.getMany (Crowdin API)
+     * @see https://support.crowdin.com/developer/enterprise/api/v2/#tag/Source-Files/operation/api.projects.files.getMany (Crowdin Enterprise API)
+     */
     private function addFile(string $domain, string $content): ?array
     {
-        $storageId = $this->addStorage($domain, $content);
-
-        /**
-         * @see https://developer.crowdin.com/api/v2/#operation/api.projects.files.getMany (Crowdin API)
-         * @see https://developer.crowdin.com/enterprise/api/v2/#operation/api.projects.files.getMany (Crowdin Enterprise API)
-         */
         $response = $this->client->request('POST', 'files', [
             'json' => [
-                'storageId' => $storageId,
+                'storageId' => $this->addStorage($domain, $content),
                 'name' => \sprintf('%s.%s', $domain, 'xlf'),
             ],
         ]);
@@ -296,17 +307,15 @@ final class CrowdinProvider implements ProviderInterface
         return $response->toArray()['data'];
     }
 
+    /**
+     * @see https://support.crowdin.com/developer/api/v2/#tag/Source-Files/operation/api.projects.files.put (Crowdin API)
+     * @see https://support.crowdin.com/developer/enterprise/api/v2/#tag/Source-Files/operation/api.projects.files.put (Crowdin Enterprise API)
+     */
     private function updateFile(int $fileId, string $domain, string $content): ?array
     {
-        $storageId = $this->addStorage($domain, $content);
-
-        /**
-         * @see https://developer.crowdin.com/api/v2/#operation/api.projects.files.put (Crowdin API)
-         * @see https://developer.crowdin.com/enterprise/api/v2/#operation/api.projects.files.put (Crowdin Enterprise API)
-         */
         $response = $this->client->request('PUT', 'files/'.$fileId, [
             'json' => [
-                'storageId' => $storageId,
+                'storageId' => $this->addStorage($domain, $content),
             ],
         ]);
 
@@ -323,38 +332,36 @@ final class CrowdinProvider implements ProviderInterface
         return $response->toArray()['data'];
     }
 
+    /**
+     * @see https://support.crowdin.com/developer/api/v2/#tag/Translations/operation/api.projects.translations.imports (Crowdin API)
+     * @see https://support.crowdin.com/developer/enterprise/api/v2/#tag/Translations/operation/api.projects.translations.enterprise.imports (Crowdin Enterprise API)
+     */
     private function importTranslations(int $fileId, string $domain, string $content, string $locale): ResponseInterface
     {
-        $storageId = $this->addStorage($domain, $content);
-
-        /*
-         * @see https://developer.crowdin.com/api/v2/#operation/api.projects.translations.imports (Crowdin API)
-         * @see https://developer.crowdin.com/enterprise/api/v2/#operation/api.projects.translations.enterprise.imports (Crowdin Enterprise API)
-         */
         return $this->client->request('POST', 'translations/imports', [
             'json' => [
-                'storageId' => $storageId,
+                'storageId' => $this->addStorage($domain, $content),
                 'languageIds' => [str_replace('_', '-', $locale)],
                 'fileId' => $fileId,
             ],
         ]);
     }
 
+    /**
+     * @see https://support.crowdin.com/developer/api/v2/#tag/Translations/operation/api.projects.translations.imports.get (Crowdin API)
+     * @see https://support.crowdin.com/developer/enterprise/api/v2/#tag/Translations/operation/api.projects.translations.enterprise.imports.get (Crowdin Enterprise API)
+     */
     private function checkImportTranslationsStatus(string $importTranslationId): ResponseInterface
     {
-        /*
-         * @see https://developer.crowdin.com/api/v2/#operation/api.projects.translations.imports.get (Crowdin API)
-         * @see https://developer.crowdin.com/enterprise/api/v2/#operation/api.projects.translations.enterprise.imports.get (Crowdin Enterprise API)
-         */
         return $this->client->request('GET', 'translations/imports/'.$importTranslationId);
     }
 
+    /**
+     * @see https://support.crowdin.com/developer/api/v2/#tag/Translations/operation/api.projects.translations.exports.post (Crowdin API)
+     * @see https://support.crowdin.com/developer/enterprise/api/v2/#tag/Translations/operation/api.projects.translations.exports.post (Crowdin Enterprise API)
+     */
     private function exportProjectTranslations(string $languageId, int $fileId): ResponseInterface
     {
-        /*
-         * @see https://developer.crowdin.com/api/v2/#operation/api.projects.translations.exports.post (Crowdin API)
-         * @see https://developer.crowdin.com/enterprise/api/v2/#operation/api.projects.translations.exports.post (Crowdin Enterprise API)
-         */
         return $this->client->request('POST', 'translations/exports', [
             'json' => [
                 'targetLanguageId' => str_replace('_', '-', $languageId),
@@ -363,21 +370,21 @@ final class CrowdinProvider implements ProviderInterface
         ]);
     }
 
+    /**
+     * @see https://support.crowdin.com/developer/api/v2/#tag/Source-Files/operation/api.projects.files.download.get (Crowdin API)
+     * @see https://support.crowdin.com/developer/enterprise/api/v2/#tag/Source-Files/operation/api.projects.files.download.get (Crowdin Enterprise API)
+     */
     private function downloadSourceFile(int $fileId): ResponseInterface
     {
-        /*
-         * @see https://developer.crowdin.com/api/v2/#operation/api.projects.files.download.get (Crowdin API)
-         * @see https://developer.crowdin.com/enterprise/api/v2/#operation/api.projects.files.download.get (Crowdin Enterprise API)
-         */
         return $this->client->request('GET', \sprintf('files/%d/download', $fileId));
     }
 
+    /**
+     * @see https://support.crowdin.com/developer/api/v2/#tag/Storage/operation/api.storages.post (Crowdin API)
+     * @see https://support.crowdin.com/developer/enterprise/api/v2/#tag/Storage/operation/api.storages.post (Crowdin Enterprise API)
+     */
     private function addStorage(string $domain, string $content): int
     {
-        /**
-         * @see https://developer.crowdin.com/api/v2/#operation/api.storages.post (Crowdin API)
-         * @see https://developer.crowdin.com/enterprise/api/v2/#operation/api.storages.post (Crowdin Enterprise API)
-         */
         $response = $this->client->request('POST', '../../storages', [
             'headers' => [
                 'Crowdin-API-FileName' => urlencode(\sprintf('%s.%s', $domain, 'xlf')),
@@ -393,14 +400,12 @@ final class CrowdinProvider implements ProviderInterface
         return $response->toArray()['data']['id'];
     }
 
+    /**
+     * @see https://support.crowdin.com/developer/api/v2/#tag/Source-Files/operation/api.projects.files.getMany (Crowdin API)
+     * @see https://support.crowdin.com/developer/enterprise/api/v2/#tag/Source-Files/operation/api.projects.files.getMany (Crowdin Enterprise API)
+     */
     private function getFileList(): array
     {
-        $result = [];
-
-        /**
-         * @see https://developer.crowdin.com/api/v2/#operation/api.projects.files.getMany (Crowdin API)
-         * @see https://developer.crowdin.com/enterprise/api/v2/#operation/api.projects.files.getMany (Crowdin Enterprise API)
-         */
         $response = $this->client->request('GET', 'files');
 
         if (200 !== $response->getStatusCode()) {
@@ -408,7 +413,7 @@ final class CrowdinProvider implements ProviderInterface
         }
 
         $fileList = $response->toArray()['data'];
-
+        $result = [];
         foreach ($fileList as $file) {
             $result[$file['data']['name']] = $file['data']['id'];
         }
@@ -416,12 +421,12 @@ final class CrowdinProvider implements ProviderInterface
         return $result;
     }
 
+    /**
+     * @see https://support.crowdin.com/developer/api/v2/#tag/Projects/operation/api.projects.get (Crowdin API)
+     * @see https://support.crowdin.com/developer/enterprise/api/v2/#tag/Projects-and-Groups/operation/api.projects.get (Crowdin Enterprise API)
+     */
     private function getLanguageMapping(): array
     {
-        /**
-         * @see https://developer.crowdin.com/api/v2/#operation/api.projects.get (Crowdin API)
-         * @see https://developer.crowdin.com/enterprise/api/v2/#operation/api.projects.get (Crowdin Enterprise API)
-         */
         $response = $this->client->request('GET', '');
 
         if (200 !== $response->getStatusCode()) {

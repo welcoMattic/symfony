@@ -282,6 +282,42 @@ class UrlSanitizerTest extends TestCase
             'expected' => 'https://trusted.com/link.php',
         ];
 
+        yield [
+            'input' => 'https://evil\\@trusted.com/',
+            'allowedSchemes' => ['https'],
+            'allowedHosts' => ['trusted.com'],
+            'forceHttps' => false,
+            'allowRelative' => false,
+            'expected' => null,
+        ];
+
+        yield [
+            'input' => 'https:/evil.com/',
+            'allowedSchemes' => ['https'],
+            'allowedHosts' => ['trusted.com'],
+            'forceHttps' => false,
+            'allowRelative' => true,
+            'expected' => null,
+        ];
+
+        yield [
+            'input' => 'https:///evil.com/',
+            'allowedSchemes' => ['https'],
+            'allowedHosts' => ['trusted.com'],
+            'forceHttps' => false,
+            'allowRelative' => true,
+            'expected' => null,
+        ];
+
+        yield [
+            'input' => 'https:\\evil.com',
+            'allowedSchemes' => ['https'],
+            'allowedHosts' => ['trusted.com'],
+            'forceHttps' => false,
+            'allowRelative' => true,
+            'expected' => null,
+        ];
+
         // Allow relative
         yield [
             'input' => '/link.php',
@@ -366,7 +402,7 @@ class UrlSanitizerTest extends TestCase
             "	   :foo.com   \n" => null,
             ' foo.com  ' => null,
             'a:	 foo.com' => null,
-            'http://f:21/ b ? d # e ' => null,
+            'http://f:21/ b ? d # e ' => ['scheme' => 'http', 'host' => 'f'],
             'lolscheme:x x#x x' => null,
             'http://f:/c' => ['scheme' => 'http', 'host' => 'f'],
             'http://f:0/c' => ['scheme' => 'http', 'host' => 'f'],
@@ -440,7 +476,7 @@ class UrlSanitizerTest extends TestCase
             'javascript:example.com/' => ['scheme' => 'javascript', 'host' => null],
             'mailto:example.com/' => ['scheme' => 'mailto', 'host' => null],
             '/a/b/c' => ['scheme' => null, 'host' => null],
-            '/a/ /c' => null,
+            '/a/ /c' => ['scheme' => null, 'host' => null],
             '/a%2fc' => ['scheme' => null, 'host' => null],
             '/a/%2f/c' => ['scheme' => null, 'host' => null],
             '#β' => ['scheme' => null, 'host' => null],
@@ -500,10 +536,10 @@ class UrlSanitizerTest extends TestCase
             'http://example.com/@asdf%40' => ['scheme' => 'http', 'host' => 'example.com'],
             'http://example.com/你好你好' => ['scheme' => 'http', 'host' => 'example.com'],
             'http://example.com/‥/foo' => ['scheme' => 'http', 'host' => 'example.com'],
-            "http://example.com/\u{feff}/foo" => ['scheme' => 'http', 'host' => 'example.com'],
+            "http://example.com/\u{feff}/foo" => null,
             "http://example.com\u{002f}\u{202e}\u{002f}\u{0066}\u{006f}\u{006f}\u{002f}\u{202d}\u{002f}\u{0062}\u{0061}\u{0072}\u{0027}\u{0020}" => null,
             'http://www.google.com/foo?bar=baz#' => ['scheme' => 'http', 'host' => 'www.google.com'],
-            'http://www.google.com/foo?bar=baz# »' => null,
+            'http://www.google.com/foo?bar=baz# »' => ['scheme' => 'http', 'host' => 'www.google.com'],
             'data:test# »' => null,
             'http://www.google.com' => ['scheme' => 'http', 'host' => 'www.google.com'],
             'http://192.0x00A80001' => ['scheme' => 'http', 'host' => '192.0x00A80001'],
@@ -558,7 +594,7 @@ class UrlSanitizerTest extends TestCase
             'file:..' => ['scheme' => 'file', 'host' => null],
             'file:a' => ['scheme' => 'file', 'host' => null],
             'http://ExAmPlE.CoM' => ['scheme' => 'http', 'host' => 'ExAmPlE.CoM'],
-            "http://GOO\u{200b}\u{2060}\u{feff}goo.com" => ['scheme' => 'http', 'host' => "GOO\u{200b}\u{2060}\u{feff}goo.com"],
+            "http://GOO\u{200b}\u{2060}\u{feff}goo.com" => null,
             'http://www.foo。bar.com' => ['scheme' => 'http', 'host' => 'www.foo。bar.com'],
             'https://x/�?�#�' => ['scheme' => 'https', 'host' => 'x'],
             'http://Ｇｏ.com' => ['scheme' => 'http', 'host' => 'Ｇｏ.com'],
@@ -807,10 +843,45 @@ class UrlSanitizerTest extends TestCase
             'a\\/\\/' => ['scheme' => null, 'host' => null],
             'test-a-colon.html' => ['scheme' => null, 'host' => null],
             'test-a-colon-b.html' => ['scheme' => null, 'host' => null],
+            'https://example.com/path with space' => ['scheme' => 'https', 'host' => 'example.com'],
+            'https://example.com:80/path with space' => ['scheme' => 'https', 'host' => 'example.com'],
+            'example.com/path with space' => ['scheme' => null, 'host' => null],
+            'https://user@example.com/path with space' => ['scheme' => 'https', 'host' => 'example.com'],
+            'https://user with space@www.example.com/path with space' => null,
+            'https://example.com?query=with space' => ['scheme' => 'https', 'host' => 'example.com'],
+            '//example.com/path with space' => ['scheme' => null, 'host' => 'example.com'],
+            '/file with space.html' => ['scheme' => null, 'host' => null],
+            'file with space.html' => ['scheme' => null, 'host' => null],
+            'mailto:foo bar@example.com' => null,
+            'https://[::1]/path with space' => ['scheme' => 'https', 'host' => '[::1]'],
+            "http://example.com/foo\u{202E}bar" => null,
+            "http://example.com/foo\u{202D}bar with space" => null,
+            "http://example.com/\u{2066}bar with space" => null,
+            "http://example.com/\u{2069}bar" => null,
+            "http://example.com\u{202E}/foo" => null,
+
+            // Percent-encoded BiDi formatting characters must also be rejected
+            'http://example.com/login.html#%E2%80%AE/moc.lave.www//:ptth' => null,
+            'http://example.com/x?q=%E2%80%AD' => null,
+            'http://example.com/?r=%E2%80%AB' => null,
+            'http://example.com/#%E2%81%A6' => null,
+            'http://example.com/?p=%E2%81%A9' => null,
+            'http://example.com/%e2%80%ae/x' => null,
+
+            // Unicode whitespace must be rejected (raw and percent-encoded)
+            "http://example.com/foo\u{00A0}bar" => null,
+            "http://example.com/\u{2028}bar" => null,
+            "http://example.com/\u{2029}bar" => null,
+            "http://example.com/\u{3000}bar" => null,
+            "http://example.com/\u{205F}bar" => null,
+            "http://example.com/\u{FEFF}bar" => null,
+            'http://example.com/foo%C2%A0bar' => null,
+            'http://example.com/%E2%80%A8bar' => null,
+            'http://example.com/%E3%80%80bar' => null,
         ];
 
         foreach ($urls as $url => $expected) {
-            yield $url => [$url, $expected];
+            yield ('' === $url ? 'empty string' : $url) => [$url, $expected];
         }
     }
 }

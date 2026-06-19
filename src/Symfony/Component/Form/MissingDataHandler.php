@@ -23,6 +23,12 @@ class MissingDataHandler
         $this->missingData = new \stdClass();
     }
 
+    /**
+     * Folds default values (typically from `false_values`) into $data for children the payload omits.
+     *
+     * Callers may pass `$this->missingData` as the sentinel for "no data submitted". Returns $data
+     * unchanged when no child synthesises a value.
+     */
     public function handle(FormInterface $form, mixed $data): mixed
     {
         $processedData = $this->handleMissingData($form, $data);
@@ -30,6 +36,10 @@ class MissingDataHandler
         return $processedData === $this->missingData ? $data : $processedData;
     }
 
+    /**
+     * Returns `$this->missingData` to signal "nothing to synthesise for this branch"; the public
+     * wrapper substitutes the caller's original $data back in.
+     */
     private function handleMissingData(FormInterface $form, mixed $data): mixed
     {
         $config = $form->getConfig();
@@ -41,7 +51,7 @@ class MissingDataHandler
                 return $falseValues[0] ?? null;
             }
 
-            if (\in_array($data, $falseValues)) {
+            if (\in_array($data, $falseValues, true)) {
                 return $data;
             }
         }
@@ -52,6 +62,7 @@ class MissingDataHandler
 
         if (\is_array($data)) {
             $children = $config->getCompound() ? $form->all() : [$form];
+            $allowDelete = $config->getOption('allow_delete', false);
 
             foreach ($children as $child) {
                 $name = $child->getName();
@@ -59,6 +70,9 @@ class MissingDataHandler
 
                 if (\array_key_exists($name, $data)) {
                     $childData = $data[$name];
+                } elseif ($allowDelete) {
+                    // Don't re-add a deleted collection entry so ResizeFormListener can remove it.
+                    continue;
                 }
 
                 $value = $this->handleMissingData($child, $childData);

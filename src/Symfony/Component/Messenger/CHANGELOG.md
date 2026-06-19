@@ -4,6 +4,7 @@ CHANGELOG
 8.1
 ---
 
+ * Add `forceRetry()` method to `RecoverableExceptionInterface`
  * Add `DecodeFailedMessageMiddleware` to re-decode failed messages using the transport's serializer
  * Receivers no longer delete messages on decode failure; they are routed through the normal retry/failure transport path
  * Add regex support for transport name patterns in the `messenger:consume` command
@@ -13,6 +14,8 @@ CHANGELOG
  * Add `MessageExecutionStrategyInterface` and `SyncMessageExecutionStrategy` to decouple message execution from the `Worker`
  * Allow configuring the service reset interval in the `messenger:consume` command via the `--no-reset` option
  * Add `AmqpPriorityStamp` to set per-message priority on the AMQP transport
+ * Add `ReleaseDeduplicationLockOnFailureListener` that releases the deduplication lock when a message fails and will not be retried
+ * Deprecate `StopWorkerOnTimeLimitListener` in favor of the `time_limit` worker option
 
 8.0
 ---

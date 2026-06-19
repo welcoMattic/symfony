@@ -42,6 +42,9 @@ class FileProfilerStorage implements ProfilerStorageInterface
         }
     }
 
+    /**
+     * @param-immediately-invoked-callable $filter
+     */
     public function find(?string $ip, ?string $url, ?int $limit, ?string $method, ?int $start = null, ?int $end = null, ?string $statusCode = null, ?\Closure $filter = null): array
     {
         $file = $this->getIndexFilename();
@@ -62,7 +65,7 @@ class FileProfilerStorage implements ProfilerStorageInterface
                 continue;
             }
 
-            [$csvToken, $csvIp, $csvMethod, $csvUrl, $csvTime, $csvParent, $csvStatusCode, $csvVirtualType, $csvHasErrors] = $values + [7 => null, 8 => null];
+            [$csvToken, $csvIp, $csvMethod, $csvUrl, $csvTime, $csvParent, $csvStatusCode, $csvVirtualType, $csvHasErrors, $hasDump] = $values + [7 => null, 8 => null, 9 => null];
             $csvTime = (int) $csvTime;
 
             $urlFilter = false;
@@ -92,6 +95,7 @@ class FileProfilerStorage implements ProfilerStorageInterface
                 'status_code' => $csvStatusCode,
                 'virtual_type' => $csvVirtualType ?: 'request',
                 'has_errors' => (bool) $csvHasErrors,
+                'has_dump' => (bool) $hasDump,
             ];
 
             if ($filter && !$filter($profile)) {
@@ -161,6 +165,7 @@ class FileProfilerStorage implements ProfilerStorageInterface
             'status_code' => $profile->getStatusCode(),
             'virtual_type' => $profile->getVirtualType() ?? 'request',
             'has_errors' => $profile->hasErrors(),
+            'has_dump' => $profile->hasDump(),
         ];
 
         $data = serialize($data);
@@ -189,6 +194,7 @@ class FileProfilerStorage implements ProfilerStorageInterface
                 $profile->getStatusCode(),
                 $profile->getVirtualType() ?? 'request',
                 $profile->hasErrors() ? '1' : '0',
+                $profile->hasDump() ? '1' : '0',
             ], ',', '"', '\\');
             fclose($file);
 
@@ -275,6 +281,7 @@ class FileProfilerStorage implements ProfilerStorageInterface
         $profile->setStatusCode($data['status_code']);
         $profile->setVirtualType($data['virtual_type'] ?: 'request');
         $profile->setHasErrors($data['has_errors'] ?? false);
+        $profile->setHasDump($data['has_dump'] ?? false);
         $profile->setCollectors($data['data']);
 
         if (!$parent && $data['parent']) {
@@ -310,7 +317,7 @@ class FileProfilerStorage implements ProfilerStorageInterface
             $data = @gzdecode($data) ?: $data;
         }
 
-        if (!$data = unserialize($data)) {
+        if (!$data = unserialize($data, ['allowed_classes' => true])) {
             return null;
         }
 

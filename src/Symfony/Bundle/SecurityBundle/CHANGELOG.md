@@ -1,12 +1,18 @@
 CHANGELOG
 =========
 
+8.2
+---
+
+ * Add `allowed_time_drift` option to the OIDC token handler configuration
+
 8.1
 ---
 
  * Add `oidc_login` firewall authenticator for the OpenID Connect Authorization Code Flow
  * Add support for the `clientHints`, `prefetchCache`, and `prerenderCache` `ClearSite-Data` directives
  * Add support for `#[AsTaggedItem]` attribute to configure voter priority
+ * Add `enforce_key_usage_verification` option to the OIDC token handler discovery configuration to opt out of filtering keys without explicit signature usage
  * Deprecate the `security.erase_credentials` configuration option and the `security.authentication.manager.erase_credentials` container parameter, as the `eraseCredentials()` method was removed in Symfony 8.0
 
 8.0

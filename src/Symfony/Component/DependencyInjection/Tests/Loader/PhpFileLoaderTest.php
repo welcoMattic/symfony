@@ -120,7 +120,7 @@ class PhpFileLoaderTest extends TestCase
         $container->compile();
 
         $dumper = new YamlDumper($container);
-        $this->assertStringMatchesFormatFile($fixtures.'/config/'.$file.'.expected.yml', $dumper->dump());
+        $this->assertStringMatchesFormatFile($fixtures.'/config/'.$file.'.expected.yml', str_replace('{  }', '{}', $dumper->dump()));
     }
 
     public static function provideConfig()
@@ -146,6 +146,7 @@ class PhpFileLoaderTest extends TestCase
         yield ['from_callable'];
         yield ['env_param'];
         yield ['array_config'];
+        yield ['array_config_tagged_iterator'];
         yield ['object_array_config'];
         yield ['return_when_env'];
     }
@@ -174,6 +175,20 @@ class PhpFileLoaderTest extends TestCase
         $container->compile();
 
         $this->assertTrue($container->getDefinition('child_service')->isAutoconfigured());
+    }
+
+    public function testArrayConfigInvokableFactoryAndConfigurator()
+    {
+        $fixtures = realpath(__DIR__.'/../Fixtures');
+        $container = new ContainerBuilder();
+        $loader = new PhpFileLoader($container, new FileLocator());
+        $loader->load($fixtures.'/config/array_config_factory.php');
+
+        $barFactoryRef = new Reference('Symfony\Component\DependencyInjection\Tests\Fixtures\BarFactory');
+
+        $this->assertEquals([$barFactoryRef, '__invoke'], $container->getDefinition('invokable_factory')->getFactory());
+        $this->assertEquals([$barFactoryRef, 'getDefaultBar'], $container->getDefinition('array_factory')->getFactory());
+        $this->assertEquals([$barFactoryRef, '__invoke'], $container->getDefinition('invokable_configurator')->getConfigurator());
     }
 
     public function testFactoryShortNotationNotAllowed()

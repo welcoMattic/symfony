@@ -17,11 +17,13 @@ use Symfony\Component\Validator\Constraints\Composite;
 use Symfony\Component\Validator\Constraints\Existence;
 use Symfony\Component\Validator\Constraints\GroupSequence;
 use Symfony\Component\Validator\Constraints\Valid;
+use Symfony\Component\Validator\ConstraintValidator;
 use Symfony\Component\Validator\ConstraintValidatorFactoryInterface;
 use Symfony\Component\Validator\ConstraintViolationListInterface;
 use Symfony\Component\Validator\Context\ExecutionContext;
 use Symfony\Component\Validator\Context\ExecutionContextInterface;
 use Symfony\Component\Validator\Exception\ConstraintDefinitionException;
+use Symfony\Component\Validator\Exception\InvalidArgumentException;
 use Symfony\Component\Validator\Exception\NoSuchMetadataException;
 use Symfony\Component\Validator\Exception\RuntimeException;
 use Symfony\Component\Validator\Exception\UnexpectedValueException;
@@ -271,11 +273,23 @@ class RecursiveContextualValidator implements ContextualValidatorInterface
      */
     protected function normalizeGroups(string|GroupSequence|array $groups): array
     {
-        if (\is_array($groups)) {
-            return $groups;
+        if (!\is_array($groups)) {
+            return [$groups];
         }
 
-        return [$groups];
+        foreach ($groups as $key => $group) {
+            if ($group instanceof GroupSequence) {
+                continue;
+            }
+
+            if (!\is_string($group) && !$group instanceof \Stringable) {
+                throw new InvalidArgumentException(\sprintf('The validation groups must be an array of strings or "%s" instances, but the array contains "%s".', GroupSequence::class, get_debug_type($group)));
+            }
+
+            $groups[$key] = (string) $group;
+        }
+
+        return $groups;
     }
 
     /**
@@ -747,14 +761,22 @@ class RecursiveContextualValidator implements ContextualValidatorInterface
             $context->setConstraint($constraint);
 
             $validator = $this->validatorFactory->getInstance($constraint);
-            $validator->initialize($context);
+            if (!$validator instanceof ConstraintValidator && !method_exists($validator, 'validateInContext')) {
+                // BC layer for constraint validators not implementing the new API. DebugClassLoader already triggers a deprecation.
+                $validator->initialize($context);
+            }
 
             if ($value instanceof LazyProperty) {
                 $value = $value->getPropertyValue();
             }
 
             try {
-                $validator->validate($value, $constraint);
+                if ($validator instanceof ConstraintValidator || method_exists($validator, 'validateInContext')) {
+                    $validator->validateInContext($value, $constraint, $context);
+                } else {
+                    // BC layer for constraint validators not implementing the new API. DebugClassLoader already triggers a deprecation.
+                    $validator->validate($value, $constraint);
+                }
             } catch (UnexpectedValueException $e) {
                 $context->buildViolation('This value should be of type {{ type }}.')
                     ->setParameter('{{ type }}', $e->getExpectedType())

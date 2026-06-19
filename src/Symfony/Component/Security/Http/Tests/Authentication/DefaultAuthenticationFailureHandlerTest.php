@@ -209,4 +209,45 @@ class DefaultAuthenticationFailureHandlerTest extends TestCase
 
         $this->assertEquals(new RedirectResponse('https://localhost/some-path'), $result);
     }
+
+    public function testFailurePathFromRequestIsIgnoredOnForward()
+    {
+        $options = ['failure_forward' => true];
+
+        $this->request->attributes->set('_failure_path', '/admin/export-users');
+
+        $subRequest = new Request();
+
+        $httpUtils = $this->createMock(HttpUtils::class);
+        $httpUtils->expects($this->once())
+            ->method('createRequest')->with($this->request, '/login')
+            ->willReturn($subRequest);
+
+        $response = new Response();
+        $httpKernel = $this->createStub(HttpKernelInterface::class);
+        $httpKernel->method('handle')->willReturn($response);
+
+        $handler = new DefaultAuthenticationFailureHandler($httpKernel, $httpUtils, $options, new NullLogger());
+        $result = $handler->onAuthenticationFailure($this->request, $this->exception);
+
+        $this->assertSame($response, $result);
+        $this->assertSame($this->exception, $subRequest->attributes->get(SecurityRequestAttributes::AUTHENTICATION_ERROR));
+    }
+
+    public function testConfiguredFailurePathIsHonoredOnForward()
+    {
+        $options = ['failure_forward' => true, 'failure_path' => '/auth/login'];
+
+        $this->request->attributes->set('_failure_path', '/admin/export-users');
+
+        $subRequest = new Request();
+
+        $httpUtils = $this->createMock(HttpUtils::class);
+        $httpUtils->expects($this->once())
+            ->method('createRequest')->with($this->request, '/auth/login')
+            ->willReturn($subRequest);
+
+        $handler = new DefaultAuthenticationFailureHandler($this->createStub(HttpKernelInterface::class), $httpUtils, $options, new NullLogger());
+        $handler->onAuthenticationFailure($this->request, $this->exception);
+    }
 }

@@ -1,6 +1,11 @@
 CHANGELOG
 =========
 
+8.2
+---
+
+ * Add `inputmode="numeric"` to `IntegerType` when the `grouping` option is enabled
+
 8.1
 ---
 
@@ -11,6 +16,7 @@ CHANGELOG
  * Add argument `$violationMapper` to `ValidatorExtensionTrait` and `TypeTestCase`'s `getExtensions()` methods
  * Add default `min`/`max` attributes to `BirthdayType` when `widget` is `single_text`
  * Add `labels` option to `DateType` to customize the year, month and day sub-field labels
+ * Use `translation_domain` instead of `choice_translation_domain` for the expanded `ChoiceType` placeholder
 
 8.0
 ---

@@ -16,6 +16,7 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Component\Dotenv\Dotenv;
 use Symfony\Component\Dotenv\Exception\FormatException;
 use Symfony\Component\Dotenv\Exception\PathException;
+use Symfony\Component\Dotenv\Exception\VariableCircularReferenceException;
 
 class DotenvTest extends TestCase
 {
@@ -232,6 +233,167 @@ class DotenvTest extends TestCase
 
         $this->assertSame('BAR', $foo);
         $this->assertSame('BAZ', $bar);
+    }
+
+    public function testLoadDoesNotReResolveAlreadyLoadedVars()
+    {
+        unset($_ENV['FOO'], $_ENV['BAR'], $_ENV['SYMFONY_DOTENV_VARS']);
+        unset($_SERVER['FOO'], $_SERVER['BAR'], $_SERVER['SYMFONY_DOTENV_VARS']);
+        putenv('FOO');
+        putenv('BAR');
+        putenv('SYMFONY_DOTENV_VARS');
+
+        @mkdir($tmpdir = sys_get_temp_dir().'/dotenv');
+
+        $path1 = tempnam($tmpdir, 'sf-');
+        $path2 = tempnam($tmpdir, 'sf-');
+
+        file_put_contents($path1, "FOO='This\$isokay'");
+        file_put_contents($path2, "BAR='hello'");
+
+        try {
+            (new Dotenv())->load($path1);
+            $this->assertSame('This$isokay', $_ENV['FOO']);
+
+            (new Dotenv())->load($path2);
+            $this->assertSame('This$isokay', $_ENV['FOO']);
+            $this->assertSame('hello', $_ENV['BAR']);
+        } finally {
+            unset($_ENV['FOO'], $_ENV['BAR'], $_ENV['SYMFONY_DOTENV_VARS']);
+            unset($_SERVER['FOO'], $_SERVER['BAR'], $_SERVER['SYMFONY_DOTENV_VARS']);
+            putenv('FOO');
+            putenv('BAR');
+            putenv('SYMFONY_DOTENV_VARS');
+            unlink($path1);
+            unlink($path2);
+            rmdir($tmpdir);
+        }
+    }
+
+    public function testLoadDoesNotResolveExternalEnvVarsOnlyPresentInServer()
+    {
+        unset($_ENV['FOO'], $_SERVER['FOO'], $_ENV['SYMFONY_DOTENV_VARS'], $_SERVER['SYMFONY_DOTENV_VARS']);
+        putenv('FOO');
+        putenv('SYMFONY_DOTENV_VARS');
+
+        $_SERVER['FOO'] = 'abc$def';
+
+        @mkdir($tmpdir = sys_get_temp_dir().'/dotenv');
+        $path = tempnam($tmpdir, 'sf-');
+        file_put_contents($path, "FOO=default\n");
+
+        try {
+            (new Dotenv())->loadEnv($path, defaultEnv: 'prod');
+            $this->assertSame('abc$def', $_ENV['FOO']);
+            $this->assertSame('abc$def', $_SERVER['FOO']);
+        } finally {
+            unset($_ENV['FOO'], $_SERVER['FOO'], $_ENV['SYMFONY_DOTENV_VARS'], $_SERVER['SYMFONY_DOTENV_VARS']);
+            putenv('FOO');
+            putenv('SYMFONY_DOTENV_VARS');
+            unlink($path);
+            @rmdir($tmpdir);
+        }
+    }
+
+    public function testLoadDoesNotTruncateExternalEnvVarReferencedFromDotenv()
+    {
+        foreach ([['env' => true, 'server' => true], ['env' => false, 'server' => true]] as $where) {
+            unset($_ENV['EXT_VAR'], $_SERVER['EXT_VAR'], $_ENV['INDIRECT'], $_SERVER['INDIRECT'], $_ENV['SYMFONY_DOTENV_VARS'], $_SERVER['SYMFONY_DOTENV_VARS']);
+            putenv('EXT_VAR');
+            putenv('INDIRECT');
+            putenv('SYMFONY_DOTENV_VARS');
+
+            if ($where['env']) {
+                $_ENV['EXT_VAR'] = 'secret$word';
+            }
+            if ($where['server']) {
+                $_SERVER['EXT_VAR'] = 'secret$word';
+            }
+
+            @mkdir($tmpdir = sys_get_temp_dir().'/dotenv');
+            $path = tempnam($tmpdir, 'sf-');
+            file_put_contents($path, "INDIRECT=\${EXT_VAR}\n");
+
+            try {
+                (new Dotenv())->load($path);
+                $this->assertSame('secret$word', $_ENV['INDIRECT']);
+                $this->assertSame('secret$word', $_SERVER['INDIRECT']);
+            } finally {
+                unset($_ENV['EXT_VAR'], $_SERVER['EXT_VAR'], $_ENV['INDIRECT'], $_SERVER['INDIRECT'], $_ENV['SYMFONY_DOTENV_VARS'], $_SERVER['SYMFONY_DOTENV_VARS']);
+                putenv('EXT_VAR');
+                putenv('INDIRECT');
+                putenv('SYMFONY_DOTENV_VARS');
+                unlink($path);
+                @rmdir($tmpdir);
+            }
+        }
+    }
+
+    public function testOverloadDoesNotExecuteShellSyntaxFromExternalEnvOnSelfReference()
+    {
+        unset($_ENV['FOO'], $_SERVER['FOO'], $_ENV['SYMFONY_DOTENV_VARS'], $_SERVER['SYMFONY_DOTENV_VARS']);
+        putenv('FOO');
+        putenv('SYMFONY_DOTENV_VARS');
+
+        $_ENV['FOO'] = $_SERVER['FOO'] = 'value$(id)';
+
+        @mkdir($tmpdir = sys_get_temp_dir().'/dotenv');
+        $path = tempnam($tmpdir, 'sf-');
+        file_put_contents($path, "FOO=\${FOO:-default}\n");
+
+        try {
+            (new Dotenv())->overload($path);
+            $this->assertSame('value$(id)', $_ENV['FOO']);
+            $this->assertSame('value$(id)', $_SERVER['FOO']);
+        } finally {
+            unset($_ENV['FOO'], $_SERVER['FOO'], $_ENV['SYMFONY_DOTENV_VARS'], $_SERVER['SYMFONY_DOTENV_VARS']);
+            putenv('FOO');
+            putenv('SYMFONY_DOTENV_VARS');
+            unlink($path);
+            @rmdir($tmpdir);
+        }
+    }
+
+    public function testResolveLoadedVarsClearsStateOnCircularReferenceException()
+    {
+        unset($_ENV['A'], $_SERVER['A'], $_ENV['B'], $_SERVER['B'], $_ENV['SYMFONY_DOTENV_VARS'], $_SERVER['SYMFONY_DOTENV_VARS']);
+        putenv('A');
+        putenv('B');
+        putenv('SYMFONY_DOTENV_VARS');
+
+        $_ENV['A'] = $_SERVER['A'] = 'external';
+
+        $dotenv = new Dotenv();
+
+        @mkdir($tmpdir = sys_get_temp_dir().'/dotenv');
+        $circular = tempnam($tmpdir, 'sf-');
+        file_put_contents($circular, "A=\${B}\nB=\${A}x\n");
+        $selfRef = tempnam($tmpdir, 'sf-');
+        file_put_contents($selfRef, "A=\${A:-default}\n");
+
+        try {
+            try {
+                $dotenv->overload($circular);
+                $this->fail('A VariableCircularReferenceException should have been thrown.');
+            } catch (VariableCircularReferenceException) {
+            }
+
+            unset($_ENV['A'], $_SERVER['A'], $_ENV['B'], $_SERVER['B'], $_ENV['SYMFONY_DOTENV_VARS'], $_SERVER['SYMFONY_DOTENV_VARS']);
+            putenv('A');
+            putenv('B');
+            putenv('SYMFONY_DOTENV_VARS');
+
+            $dotenv->load($selfRef);
+            $this->assertSame('default', $_ENV['A']);
+        } finally {
+            unset($_ENV['A'], $_SERVER['A'], $_ENV['B'], $_SERVER['B'], $_ENV['SYMFONY_DOTENV_VARS'], $_SERVER['SYMFONY_DOTENV_VARS']);
+            putenv('A');
+            putenv('B');
+            putenv('SYMFONY_DOTENV_VARS');
+            unlink($circular);
+            unlink($selfRef);
+            @rmdir($tmpdir);
+        }
     }
 
     public function testLoadEnv()
@@ -585,6 +747,60 @@ class DotenvTest extends TestCase
         @rmdir($tmpdir);
     }
 
+    public function testLoadSelfReferencingVariableWithSuffix()
+    {
+        $resetContext = static function (): void {
+            unset($_ENV['SYMFONY_DOTENV_VARS'], $_ENV['MY_VAR']);
+            unset($_SERVER['SYMFONY_DOTENV_VARS'], $_SERVER['MY_VAR']);
+            putenv('SYMFONY_DOTENV_VARS');
+            putenv('MY_VAR');
+        };
+
+        @mkdir($tmpdir = sys_get_temp_dir().'/dotenv');
+        $basePath = tempnam($tmpdir, 'sf-');
+        $overridePath = tempnam($tmpdir, 'sf-');
+
+        // Base file sets original value, override file appends suffix
+        file_put_contents($basePath, 'MY_VAR=original');
+        file_put_contents($overridePath, 'MY_VAR="${MY_VAR}_suffix"');
+
+        $resetContext();
+        $dotenv = (new Dotenv())->usePutenv();
+        $dotenv->load($basePath);
+        $dotenv->load($overridePath);
+
+        $this->assertSame('original_suffix', getenv('MY_VAR'));
+
+        // Test with prefix instead of suffix
+        file_put_contents($overridePath, 'MY_VAR="prefix_${MY_VAR}"');
+
+        $resetContext();
+        $dotenv = (new Dotenv())->usePutenv();
+        $dotenv->load($basePath);
+        $dotenv->load($overridePath);
+
+        $this->assertSame('prefix_original', getenv('MY_VAR'));
+
+        // Test chained loads (three files)
+        $thirdPath = tempnam($tmpdir, 'sf-');
+        file_put_contents($overridePath, 'MY_VAR="${MY_VAR}_middle"');
+        file_put_contents($thirdPath, 'MY_VAR="${MY_VAR}_end"');
+
+        $resetContext();
+        $dotenv = (new Dotenv())->usePutenv();
+        $dotenv->load($basePath);
+        $dotenv->load($overridePath);
+        $dotenv->load($thirdPath);
+
+        $this->assertSame('original_middle_end', getenv('MY_VAR'));
+
+        $resetContext();
+        unlink($basePath);
+        unlink($overridePath);
+        unlink($thirdPath);
+        @rmdir($tmpdir);
+    }
+
     public function testLoadEnvSelfReferencingEnvKeyControlsFileLoading()
     {
         $resetContext = static function (): void {
@@ -643,7 +859,7 @@ class DotenvTest extends TestCase
 
         $resetContext();
         try {
-            $this->expectException(\LogicException::class);
+            $this->expectException(VariableCircularReferenceException::class);
             $this->expectExceptionMessage('Too many levels of variable indirection');
             (new Dotenv())->load($path1, $path2);
         } finally {

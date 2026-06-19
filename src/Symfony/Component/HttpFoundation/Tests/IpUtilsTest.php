@@ -237,11 +237,17 @@ class IpUtilsTest extends TestCase
             ['169.254.0.1',     true],
             ['0.0.0.1',         true],
             ['240.0.0.1',       true],
+            ['100.64.0.1',      true],
             ['::1',             true],
             ['fc00::1',         true],
             ['fe80::1',         true],
             ['::ffff:0:1',      true],
             ['fd00::1',         true],
+            ['::7f00:1',           true],
+            ['2002:7f00:1::',      true],
+            ['2001::1',            true],
+            ['64:ff9b::7f00:1',    true],
+            ['64:ff9b:1::7f00:1',  true],
 
             // public
             ['104.26.14.6',             false],

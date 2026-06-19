@@ -21,8 +21,8 @@ use Symfony\Component\PropertyInfo\Tests\Fixtures\AsymmetricVisibility;
 use Symfony\Component\PropertyInfo\Tests\Fixtures\ConstructorDummy;
 use Symfony\Component\PropertyInfo\Tests\Fixtures\DefaultValue;
 use Symfony\Component\PropertyInfo\Tests\Fixtures\Dummy;
-use Symfony\Component\PropertyInfo\Tests\Fixtures\DummyWithHasser;
 use Symfony\Component\PropertyInfo\Tests\Fixtures\DummyWithAccessorWithoutProperty;
+use Symfony\Component\PropertyInfo\Tests\Fixtures\DummyWithHasser;
 use Symfony\Component\PropertyInfo\Tests\Fixtures\NotInstantiable;
 use Symfony\Component\PropertyInfo\Tests\Fixtures\ParentDummy;
 use Symfony\Component\PropertyInfo\Tests\Fixtures\Php71Dummy;
@@ -550,6 +550,21 @@ class ReflectionExtractorTest extends TestCase
     public function testPropertyHookSameSetterType()
     {
         $this->assertEquals(Type::string(), $this->extractor->getType(VirtualProperties::class, 'sameSetterType'));
+    }
+
+    #[DataProvider('providePropertyHookShorthand')]
+    public function testPropertyHookShorthand(string $property)
+    {
+        $this->assertEquals(Type::bool(), $this->extractor->getType(VirtualProperties::class, $property));
+    }
+
+    public static function providePropertyHookShorthand(): array
+    {
+        return [
+            'set hook only' => ['virtualSetHookOnly'],
+            'get and set hooks' => ['virtualHook'],
+            'get only falls back to declared type' => ['virtualNoSetHook'],
+        ];
     }
 
     #[DataProvider('provideAsymmetricVisibilityMutator')]

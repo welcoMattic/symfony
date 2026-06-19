@@ -20,6 +20,15 @@ use Symfony\Component\Runtime\RunnerInterface;
 /**
  * A runner for FrankenPHP in worker mode.
  *
+ * Loops up to $loopMax times; pass 0 or a negative integer to loop indefinitely.
+ *
+ * When the application is an HttpKernelInterface and "FRANKENPHP_RESET_KERNEL" is truthy,
+ * the kernel is cloned after each request to mitigate cross-request state leaks; subclasses
+ * keeping non-resettable state should override __clone accordingly.
+ *
+ * "APP_RUNTIME_MODE" is set to "web=1&worker=1", or "web=1&worker=2" when FRANKENPHP_RESET_KERNEL
+ * is active.
+ *
  * @author Kévin Dunglas <kevin@dunglas.dev>
  */
 class FrankenPhpWorkerRunner implements RunnerInterface
@@ -36,7 +45,8 @@ class FrankenPhpWorkerRunner implements RunnerInterface
         ignore_user_abort(true);
 
         $server = array_filter($_SERVER, static fn (string $key) => !str_starts_with($key, 'HTTP_'), \ARRAY_FILTER_USE_KEY);
-        $server['APP_RUNTIME_MODE'] = 'web=1&worker=1';
+        $resetKernel = $this->application instanceof HttpKernelInterface && filter_var($server['FRANKENPHP_RESET_KERNEL'] ?? false, \FILTER_VALIDATE_BOOL);
+        $server['APP_RUNTIME_MODE'] = $resetKernel ? 'web=1&worker=2' : 'web=1&worker=1';
 
         $handler = function () use ($server, &$sfRequest, &$sfResponse): void {
             // Connect to the Xdebug client if it's available
@@ -63,6 +73,9 @@ class FrankenPhpWorkerRunner implements RunnerInterface
 
             if ($this->application instanceof TerminableInterface && $sfRequest && $sfResponse) {
                 $this->application->terminate($sfRequest, $sfResponse);
+            }
+            if ($resetKernel) {
+                $this->application = clone $this->application;
             }
 
             gc_collect_cycles();

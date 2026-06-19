@@ -17,20 +17,8 @@ Installation
 Sponsor
 -------
 
-Symfony 8.0 is backed by:
+Symfony 8.2 is looking for [backers][27].
 
-- [Sulu][27]
-- [PhpStorm][28]
-
-**Sulu** is the CMS for Symfony developers. It provides pre-built content-management
-features while giving developers the freedom to build, deploy, and maintain custom
-solutions using full-stack Symfony. Sulu is ideal for creating complex websites,
-integrating external tools, and building custom-built solutions.
-
-**PhpStorm** is a JetBrains IDE designed specifically for PHP development. Out of the
-box, PhpStorm provides you with intelligent, feature-rich code editing tailored to every
-aspect of PHP programming – smart coding assistance, reliable refactorings, instant code
-navigation, built-in developer tools, PHP framework support, and more.
 
 Help Symfony by [sponsoring][31] its development!
 
@@ -94,6 +82,9 @@ and supported by [Symfony contributors][19].
 [24]: https://symfony.com/coc
 [25]: https://symfony.com/doc/current/contributing/code_of_conduct/care_team.html
 [26]: https://symfony.com/book
-[27]: https://sulu.io/
-[28]: https://jb.gg/fbsk8y
-[31]: https://symfony.com/sponsor
+[27]: https://symfony.com/backers
+[28]: https://
+[29]: https://
+[30]: https://
+[31]: https://
+[32]: https://symfony.com/sponsor

@@ -13,7 +13,9 @@ namespace Symfony\Bridge\Doctrine\Tests\SchemaListener;
 
 use Doctrine\DBAL\Configuration;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Schema\Column;
 use Doctrine\DBAL\Schema\Schema;
+use Doctrine\DBAL\Schema\Table;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Tools\Event\GenerateSchemaEventArgs;
 use PHPUnit\Framework\TestCase;
@@ -60,13 +62,24 @@ class DoctrineDbalCacheAdapterSchemaListenerTest extends TestCase
         $dbalAdapter = $this->createStub(DoctrineDbalAdapter::class);
         $dbalAdapter->method('configureSchema')
             ->willReturnCallback(static function (Schema $schema) {
+                if (method_exists($schema, 'edit')) {
+                    $table = Table::editor()
+                        ->setUnquotedName('cache_items')
+                        ->addColumn(Column::editor()->setUnquotedName('item_id')->setTypeName('string')->create())
+                        ->create();
+
+                    return $schema->edit()->addTable($table)->create();
+                }
+
                 $table = $schema->createTable('cache_items');
                 $table->addColumn('item_id', 'string');
+
+                return $schema;
             });
 
         $listener = new DoctrineDbalCacheAdapterSchemaListener([$dbalAdapter]);
         $listener->postGenerateSchema($event);
 
-        $this->assertFalse($schema->hasTable('cache_items'));
+        $this->assertFalse($event->getSchema()->hasTable('cache_items'));
     }
 }

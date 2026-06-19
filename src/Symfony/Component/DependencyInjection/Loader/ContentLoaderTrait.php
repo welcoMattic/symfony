@@ -14,6 +14,7 @@ namespace Symfony\Component\DependencyInjection\Loader;
 use Symfony\Component\DependencyInjection\Alias;
 use Symfony\Component\DependencyInjection\Argument\AbstractArgument;
 use Symfony\Component\DependencyInjection\Argument\BoundArgument;
+use Symfony\Component\DependencyInjection\Argument\EnvClosureArgument;
 use Symfony\Component\DependencyInjection\Argument\IteratorArgument;
 use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
 use Symfony\Component\DependencyInjection\Argument\ServiceLocatorArgument;
@@ -24,6 +25,7 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Exception\InvalidArgumentException;
 use Symfony\Component\DependencyInjection\Exception\LogicException;
+use Symfony\Component\DependencyInjection\Exception\ParameterNotFoundException;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\ExpressionLanguage\Expression;
 use Symfony\Component\VarExporter\DeepCloner;
@@ -707,6 +709,10 @@ trait ContentLoaderTrait
      */
     private function parseCallable(mixed $callable, string $parameter, string $id, string $file): string|array|Reference
     {
+        if ($callable instanceof Reference) {
+            return [$callable, '__invoke'];
+        }
+
         if (\is_string($callable)) {
             if (str_starts_with($callable, '@=')) {
                 if ('factory' !== $parameter) {
@@ -770,6 +776,27 @@ trait ContentLoaderTrait
 
                 return new ServiceClosureArgument($argument);
             }
+            if ('env_closure' === $value->getTag()) {
+                if (\is_array($argument)) {
+                    $envExpr = $argument[0] ?? null;
+                    $default = $argument[1] ?? null;
+                    $stringable = $argument[2] ?? true;
+                    $validKeys = !array_diff(array_keys($argument), [0, 1, 2]);
+                } else {
+                    [$envExpr, $default, $stringable, $validKeys] = [$argument, null, false, true];
+                }
+
+                if (!\is_string($envExpr) || !\is_bool($stringable) || !$validKeys) {
+                    throw new InvalidArgumentException(\sprintf('"!env_closure" tag only accepts a string value or an array [value, default, stringable] in "%s".', $file));
+                }
+
+                try {
+                    $envExpr = $this->container->getParameterBag()->resolveValue($envExpr);
+                } catch (ParameterNotFoundException) {
+                }
+
+                return new EnvClosureArgument($envExpr, $default, $stringable);
+            }
             if ('service_locator' === $value->getTag()) {
                 if (!\is_array($argument)) {
                     throw new InvalidArgumentException(\sprintf('"!service_locator" tag only accepts maps in "%s".', $file));
@@ -798,7 +825,7 @@ trait ContentLoaderTrait
                         $argument = new TaggedIteratorArgument($tag, $indexBy, $forLocator, $exclude, $excludeSelf);
                     }
                 } elseif (\is_string($argument) && $argument) {
-                    $argument = new TaggedIteratorArgument($argument, null, null, $forLocator);
+                    $argument = new TaggedIteratorArgument($argument, null, $forLocator);
                 } else {
                     throw new InvalidArgumentException(\sprintf('"!%s" tags only accept a non empty string or an array with a key "tag" in "%s".', $value->getTag(), $file));
                 }

@@ -1,7 +1,7 @@
 name: Windows
 
 on:
-  push:
+  push: { branches: [ '*.*' ] }
   pull_request:
 
 concurrency:
@@ -34,15 +34,16 @@ jobs:
           git config --global user.name "Symfony"
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           fetch-depth: 2
 
       - name: Setup PHP
         run: |
           $env:Path = 'c:\php;' + $env:Path
           mkdir c:\php && cd c:\php
-          iwr -outf php.zip https://github.com/symfony/binary-utils/releases/download/v0.1/php-8.4.0-Win32-vs17-x86.zip
+          iwr -outf php.zip https://github.com/symfony/binary-utils/releases/download/v0.1/php-8.4.1-Win32-vs17-x86.zip
           7z x php.zip -y >nul
           Copy php.ini-development php.ini
           "memory_limit=-1" >> php.ini
@@ -135,15 +136,16 @@ jobs:
           git config --global user.name "Symfony"
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
+          persist-credentials: false
           fetch-depth: 2
 
       - name: Setup PHP
         run: |
           $env:Path = 'c:\php;' + $env:Path
           mkdir c:\php && cd c:\php
-          iwr -outf php.zip https://github.com/symfony/binary-utils/releases/download/v0.1/php-8.4.0-Win32-vs17-x86.zip
+          iwr -outf php.zip https://github.com/symfony/binary-utils/releases/download/v0.1/php-8.4.1-Win32-vs17-x86.zip
           7z x php.zip -y >nul
           cd ext
           iwr -outf php_apcu.zip https://github.com/symfony/binary-utils/releases/download/v0.1/php_apcu-5.1.24-8.4-ts-vs17-x86.zip

@@ -1,9 +1,17 @@
 CHANGELOG
 =========
 
+8.2
+---
+
+ * Add `#[AsControllerAttributeListener]` attribute to declare event listeners for controller attributes
+ * Add the `$expiration` argument to `FragmentUriGenerator::__construct()` and sign fragment URIs with a 5-year expiration by default
+ * Add `hasDump()` method to `Profile` to track profiles with dump
+
 8.1
 ---
 
+ * Add `setNonce()` to `DumpDataCollector` to forward CSP nonces to every `HtmlDumper` it instantiates
  * Add `#[MapRequestHeader]` to map a header from `Request` to a controller argument
  * Add `hasErrors()` method to `Profile` to track profiles with errors (exceptions or error-level logs)
  * Validate typed route parameters before calling controllers and return an HTTP error when an invalid value is provided
@@ -26,6 +34,11 @@ CHANGELOG
  * Add `#[Serialize]` to serialize values returned by controllers
  * Add argument `$mapWhenEmpty` to `MapQueryString` and `MapRequestPayload` for always attempting denormalization with empty query and request payload
  * Deprecate `Bundle::registerCommands()`, use the `#[AsCommand]` attribute or the `console.command` service tag instead of overriding this method
+ * Deprecate `BundleInterface`, use the one from the DependencyInjection component instead
+ * Deprecate `MergeExtensionConfigurationPass`, use the one from the DependencyInjection component instead
+ * Deprecate `FileLocator`, use the one from the DependencyInjection component instead
+ * Add `#[RateLimit]` attribute to declaratively enforce rate limiting on controllers.
+ * Deprecate `ServicesResetter`, `ServicesResetterInterface`, and `ResettableServicePass`, use the ones from the DependencyInjection component instead
 
 8.0
 ---

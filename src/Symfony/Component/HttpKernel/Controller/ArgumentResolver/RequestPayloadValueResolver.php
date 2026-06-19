@@ -133,7 +133,8 @@ class RequestPayloadValueResolver implements ValueResolverInterface, EventSubscr
                     $payload = $payloadMapper($request, $argument->metadata, $argument);
                 } catch (PartialDenormalizationException $e) {
                     $trans = $this->translator ? $this->translator->trans(...) : static fn ($m, $p) => strtr($m, $p);
-                    foreach ($e->getErrors() as $error) {
+                    $errors = method_exists($e, 'getNotNormalizableValueErrors') ? $e->getNotNormalizableValueErrors() : $e->getErrors();
+                    foreach ($errors as $error) {
                         $parameters = [];
                         $template = 'This value was of an unexpected type.';
                         if ($expectedTypes = $error->getExpectedTypes()) {
@@ -145,6 +146,13 @@ class RequestPayloadValueResolver implements ValueResolverInterface, EventSubscr
                         }
                         $message = $trans($template, $parameters, $this->translationDomain);
                         $violations->add(new ConstraintViolation($message, $template, $parameters, null, $error->getPath(), null));
+                    }
+                    if (null !== $extraAttributesError = method_exists($e, 'getExtraAttributesError') ? $e->getExtraAttributesError() : null) {
+                        $template = 'This attribute was not expected.';
+                        foreach ($extraAttributesError->getExtraAttributes() as $extraAttribute) {
+                            $message = $trans($template, [], $this->translationDomain);
+                            $violations->add(new ConstraintViolation($message, $template, [], null, $extraAttribute, null));
+                        }
                     }
                     $payload = $e->getData();
                 } catch (SerializerInvalidArgumentException $e) {
@@ -173,7 +181,8 @@ class RequestPayloadValueResolver implements ValueResolverInterface, EventSubscr
                 try {
                     $payload = $payloadMapper($request, $argument->metadata, $argument);
                 } catch (PartialDenormalizationException $e) {
-                    throw HttpException::fromStatusCode($validationFailedCode, implode("\n", array_map(static fn ($e) => $e->getMessage(), $e->getErrors())), $e);
+                    $errors = method_exists($e, 'getNotNormalizableValueErrors') ? $e->getNotNormalizableValueErrors() : $e->getErrors();
+                    throw HttpException::fromStatusCode($validationFailedCode, implode("\n", array_map(static fn ($e) => $e->getMessage(), $errors)), $e);
                 } catch (SerializerInvalidArgumentException $e) {
                     throw HttpException::fromStatusCode($validationFailedCode, $e->getMessage(), $e);
                 }
@@ -200,8 +209,10 @@ class RequestPayloadValueResolver implements ValueResolverInterface, EventSubscr
 
     public static function getSubscribedEvents(): array
     {
+        // Keep this priority lower than ControllerAttributesListener (-10000) so that gate
+        // attributes such as #[IsGranted] are handled before the payload is mapped.
         return [
-            KernelEvents::CONTROLLER_ARGUMENTS => 'onKernelControllerArguments',
+            KernelEvents::CONTROLLER_ARGUMENTS => ['onKernelControllerArguments', -10100],
         ];
     }
 

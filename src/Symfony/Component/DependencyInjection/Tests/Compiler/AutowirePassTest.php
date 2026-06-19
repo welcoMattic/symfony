@@ -12,7 +12,6 @@
 namespace Symfony\Component\DependencyInjection\Tests\Compiler;
 
 use PHPUnit\Framework\Attributes\DataProvider;
-use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
@@ -454,7 +453,7 @@ class AutowirePassTest extends TestCase
         $this->assertNull($definition->getArgument(0));
     }
 
-    public function testParameterWithNullableIntersectionIsSkipped()
+    public function testParameterWithNullableIntersectionIsSkippedWhenAliasDoesNotExist()
     {
         $container = new ContainerBuilder();
 
@@ -465,6 +464,23 @@ class AutowirePassTest extends TestCase
 
         $definition = $container->getDefinition('opt');
         $this->assertNull($definition->getArgument(0));
+    }
+
+    public function testParameterWithNullableIntersectionIsAutowiredWhenAliasExists()
+    {
+        $container = new ContainerBuilder();
+
+        $container->register('b', \stdClass::class);
+        $container->setAlias(CollisionInterface::class, 'b');
+        $container->setAlias(AnotherInterface::class, 'b');
+
+        $optDefinition = $container->register('opt', NullableIntersection::class);
+        $optDefinition->setAutowired(true);
+
+        (new AutowirePass())->process($container);
+
+        $definition = $container->getDefinition('opt');
+        $this->assertSame('b', (string) $definition->getArgument(0));
     }
 
     public function testParameterWithNullUnionIsAutowired()
@@ -1506,7 +1522,7 @@ class AutowirePassTest extends TestCase
         $expected = [
             'decorated' => new Reference(AutowireNestedAttributes::class.'.inner'),
             'iterator' => new TaggedIteratorArgument('foo'),
-            'locator' => new ServiceLocatorArgument(new TaggedIteratorArgument('foo', needsIndexes: true)),
+            'locator' => new ServiceLocatorArgument(new TaggedIteratorArgument('foo', null, true)),
             'service' => new Reference('bar'),
         ];
         $this->assertEquals($expected, $container->getDefinition(AutowireNestedAttributes::class)->getArgument(0));
@@ -1522,6 +1538,18 @@ class AutowirePassTest extends TestCase
 
         $expected = new Reference('.lazy.'.A::class);
         $this->assertEquals($expected, $container->getDefinition('foo')->getArgument(0));
+    }
+
+    public function testLazyServiceAttributeOnAlreadyLazyService()
+    {
+        $container = new ContainerBuilder();
+        $container->register(A::class, A::class)->setAutowired(true)->setLazy(true);
+        $container->register('foo', LazyServiceAttributeAutowiring::class)->setAutowired(true);
+
+        (new AutowirePass())->process($container);
+
+        $this->assertSame(A::class, (string) $container->getDefinition('foo')->getArgument(0));
+        $this->assertFalse($container->hasDefinition('.lazy.'.A::class));
     }
 
     public function testLazyNotCompatibleWithAutowire()

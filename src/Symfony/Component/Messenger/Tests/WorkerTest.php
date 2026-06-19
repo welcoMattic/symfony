@@ -18,8 +18,8 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Bridge\PhpUnit\ClockMock;
 use Symfony\Component\Clock\MockClock;
+use Symfony\Component\DependencyInjection\ServicesResetter;
 use Symfony\Component\EventDispatcher\EventDispatcher;
-use Symfony\Component\HttpKernel\DependencyInjection\ServicesResetter;
 use Symfony\Component\Messenger\Envelope;
 use Symfony\Component\Messenger\Event\WorkerMessageFailedEvent;
 use Symfony\Component\Messenger\Event\WorkerMessageHandledEvent;
@@ -321,6 +321,72 @@ class WorkerTest extends TestCase
         $worker = new Worker([$receiver], new MessageBus(), $dispatcher, clock: $clock);
         $worker->run(['sleep' => 1000000]);
         $this->assertEquals(new \DateTimeImmutable('2023-03-19 14:00:03+00:00'), $clock->now());
+    }
+
+    public function testWorkerDoesNotSleepWhenStoppedDuringIdleRunningEvent()
+    {
+        $clock = new MockClock('2023-03-19 14:00:00+00:00');
+        $receiver = new DummyReceiver([[]]);
+
+        $dispatcher = new EventDispatcher();
+        $dispatcher->addListener(WorkerRunningEvent::class, static function (WorkerRunningEvent $event) {
+            if ($event->isWorkerIdle()) {
+                $event->getWorker()->stop();
+            }
+        });
+
+        $worker = new Worker([$receiver], new MessageBus(), $dispatcher, clock: $clock);
+        $worker->run(['sleep' => 1000000]);
+
+        $this->assertEquals(new \DateTimeImmutable('2023-03-19 14:00:00+00:00'), $clock->now());
+    }
+
+    public function testWorkerCapsIdleSleepToRemainingTimeLimitAfterMessageConsumption()
+    {
+        $clock = new MockClock('2023-03-19 14:00:00+00:00');
+        $receiver = new DummyReceiver([
+            [new Envelope(new DummyMessage('API'))],
+            [],
+        ]);
+
+        $dispatcher = new EventDispatcher();
+        $dispatcher->addListener(WorkerRunningEvent::class, static function (WorkerRunningEvent $event) use ($clock) {
+            if (!$event->isWorkerIdle()) {
+                $clock->sleep(50);
+            }
+        });
+
+        $worker = new Worker([$receiver], new MessageBus(), $dispatcher, clock: $clock);
+        $worker->run(['sleep' => 20000000, 'time_limit' => 60]);
+
+        $this->assertEquals(new \DateTimeImmutable('2023-03-19 14:01:00+00:00'), $clock->now());
+    }
+
+    public function testWorkerLogsWhenStoppedDueToTimeLimit()
+    {
+        $clock = new MockClock('2023-03-19 14:00:00+00:00');
+        $receiver = new DummyReceiver([[]]);
+
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects($this->atLeastOnce())->method('info')
+            ->willReturnCallback(function (string $message, array $context = []) use (&$timeLimitLogged) {
+                if ('Worker stopped due to time limit of {timeLimit}s exceeded' === $message) {
+                    $this->assertSame(['timeLimit' => 60], $context);
+                    $timeLimitLogged = true;
+                }
+            });
+
+        $dispatcher = new EventDispatcher();
+        $dispatcher->addListener(WorkerRunningEvent::class, static function (WorkerRunningEvent $event) use ($clock) {
+            if ($event->isWorkerIdle()) {
+                $clock->sleep(70);
+            }
+        });
+
+        $worker = new Worker([$receiver], new MessageBus(), $dispatcher, $logger, clock: $clock);
+        $worker->run(['sleep' => 1000000, 'time_limit' => 60]);
+
+        $this->assertTrue($timeLimitLogged ?? false);
     }
 
     public function testWorkerWithMultipleReceivers()

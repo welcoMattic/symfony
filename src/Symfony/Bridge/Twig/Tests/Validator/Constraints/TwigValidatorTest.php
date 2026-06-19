@@ -15,9 +15,11 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use Symfony\Bridge\Twig\Validator\Constraints\Twig;
 use Symfony\Bridge\Twig\Validator\Constraints\TwigValidator;
+use Symfony\Component\Validator\Constraint;
 use Symfony\Component\Validator\Test\ConstraintValidatorTestCase;
 use Twig\DeprecatedCallableInfo;
 use Twig\Environment;
+use Twig\Error\Error;
 use Twig\Loader\ArrayLoader;
 use Twig\TwigFilter;
 
@@ -40,7 +42,7 @@ class TwigValidatorTest extends ConstraintValidatorTestCase
     #[DataProvider('getValidValues')]
     public function testTwigIsValid($value)
     {
-        $this->validator->validate($value, new Twig());
+        $this->validate($value, new Twig());
 
         $this->assertNoViolation();
     }
@@ -50,7 +52,7 @@ class TwigValidatorTest extends ConstraintValidatorTestCase
     {
         $constraint = new Twig('myMessageTest');
 
-        $this->validator->validate($value, $constraint);
+        $this->validate($value, $constraint);
 
         $this->buildViolation('myMessageTest')
             ->setParameter('{{ error }}', $message)
@@ -67,7 +69,7 @@ class TwigValidatorTest extends ConstraintValidatorTestCase
     {
         $constraint = new Twig(skipDeprecations: true);
 
-        $this->validator->validate('{{ name|deprecated_filter }}', $constraint);
+        $this->validate('{{ name|deprecated_filter }}', $constraint);
 
         $this->assertNoViolation();
     }
@@ -76,7 +78,7 @@ class TwigValidatorTest extends ConstraintValidatorTestCase
     {
         $constraint = new Twig(skipDeprecations: false);
 
-        $this->validator->validate('{{ name|deprecated_filter }}', $constraint);
+        $this->validate('{{ name|deprecated_filter }}', $constraint);
 
         $this->buildViolation($constraint->message)
             ->setParameter('{{ error }}', 'Since foo/bar 1.1: Twig Filter "deprecated_filter" is deprecated.')
@@ -99,15 +101,28 @@ class TwigValidatorTest extends ConstraintValidatorTestCase
 
     public static function getInvalidValues()
     {
+        // Twig 3.28 started reporting the column number in syntax errors
+        $column = method_exists(Error::class, 'getTemplateColumn') ? ' column 14' : '';
+
         return [
             // Invalid syntax example (missing end tag)
             ['{% if condition %}Oops', 'Unexpected end of template at line 1.', 1],
             // Another syntax error example (unclosed variable)
-            ['Hello {{ name', 'Unexpected token "end of template" ("end of print statement" expected) at line 1.', 1],
+            ['Hello {{ name', \sprintf('Unexpected token "end of template" ("end of print statement" expected) at line 1%s.', $column), 1],
             // Unknown filter error
             ['Hello {{ name|unknown_filter }}', 'Unknown "unknown_filter" filter at line 1.', 1],
             // Invalid variable syntax
             ['Hello {{ .name }}', 'Unexpected token "operator" of value "." at line 1.', 1],
         ];
+    }
+
+    // TODO remove this in Symfony 9.0 (or earlier, when dropping support for symfony/validator < 8.1)
+    protected function validate(mixed $value, Constraint $constraint): void
+    {
+        if (method_exists(parent::class, 'validate')) {
+            parent::validate($value, $constraint);
+        } else {
+            $this->validator->validate($value, $constraint);
+        }
     }
 }

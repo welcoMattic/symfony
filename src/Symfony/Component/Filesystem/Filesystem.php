@@ -69,8 +69,8 @@ class Filesystem
             }
 
             if ($originIsLocal) {
-                // Like `cp`, preserve executable permission bits
-                self::box('chmod', $targetFile, fileperms($targetFile) | (fileperms($originFile) & 0o111));
+                // Like `cp`, preserve the source mode masked by the umask
+                self::box('chmod', $targetFile, fileperms($originFile) & 0o777 & ~umask());
 
                 // Like `cp`, preserve the file modification time
                 self::box('touch', $targetFile, filemtime($originFile));
@@ -522,6 +522,7 @@ class Filesystem
      *                                    Valid options are:
      *                                    - $options['override'] If true, target files newer than origin files are overwritten (see copy(), defaults to false)
      *                                    - $options['follow_symlinks'] Whether to copy files instead of links, esp. useful on Windows (see symlink(), defaults to false)
+     *                                    - $options['copy_on_windows'] @deprecated since Symfony 8.1, use $options['follow_symlinks'] instead
      *                                    - $options['delete'] Whether to delete files that are not in the source directory (defaults to false)
      *
      * @throws IOException When file type is unknown
@@ -529,7 +530,7 @@ class Filesystem
     public function mirror(string $originDir, string $targetDir, ?\Traversable $iterator = null, array $options = []): void
     {
         if (isset($options['copy_on_windows'])) {
-            trigger_deprecation('symfony/filesystem', '8.1', 'Calling "%s()" with option "copy_on_windows" is deprecated, use "follow_symlinks" option instead.', __METHOD__);
+            trigger_deprecation('symfony/filesystem', '8.1', 'Calling "%s()" with option "copy_on_windows" is deprecated, use option "follow_symlinks" instead.', __METHOD__);
         }
 
         $targetDir = rtrim($targetDir, '/\\');

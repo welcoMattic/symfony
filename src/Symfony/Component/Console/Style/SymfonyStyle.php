@@ -534,7 +534,13 @@ class SymfonyStyle extends OutputStyle
             }
 
             $line = $prefix.$line;
-            $line .= str_repeat(' ', max($this->lineLength - Helper::width(Helper::removeDecoration($this->getFormatter(), $line)), 0));
+            $paddingLength = max($this->lineLength - Helper::width(Helper::removeDecoration($this->getFormatter(), $line)), 0);
+
+            // ECH paints the trailing cells with the current background and CUF moves the cursor past
+            // them without writing characters, so most terminals trim them when copying the selection.
+            $line .= $style && $this->isDecorated() && 0 < $paddingLength
+                ? \sprintf("\e[%1\$dX\e[%1\$dC", $paddingLength)
+                : str_repeat(' ', $paddingLength);
 
             if ($style) {
                 $line = \sprintf('<%s>%s</>', $style, $line);
@@ -574,9 +580,9 @@ class SymfonyStyle extends OutputStyle
 
         // Top border: ' ┌─ Type ────┐' or ' ┌────┐' when no type
         if (null !== $type) {
-            $line = ' ┌─ '.$type.' '.str_repeat('─', $this->lineLength - 6 - Helper::width($type)).'┐';
+            $line = ' ┌─ '.$type.' '.str_repeat('─', max(0, $this->lineLength - 6 - Helper::width($type))).'┐';
         } else {
-            $line = ' ┌'.str_repeat('─', $this->lineLength - 3).'┐';
+            $line = ' ┌'.str_repeat('─', max(0, $this->lineLength - 3)).'┐';
         }
         $result[] = $style ? \sprintf('<%s>%s</>', $style, $line) : $line;
 
@@ -586,7 +592,7 @@ class SymfonyStyle extends OutputStyle
             $result[] = $style ? \sprintf('<%s> │ </>%s<%1$s> │</>', $style, $padded) : ' │ '.$padded.' │';
         }
 
-        $borderDashes = str_repeat('─', $this->lineLength - 3);
+        $borderDashes = str_repeat('─', max(0, $this->lineLength - 3));
         $line = ' └'.$borderDashes.'┘';
         $result[] = $style ? \sprintf('<%s>%s</>', $style, $line) : $line;
 

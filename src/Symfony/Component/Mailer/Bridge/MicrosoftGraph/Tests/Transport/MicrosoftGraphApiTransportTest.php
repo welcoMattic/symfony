@@ -17,6 +17,7 @@ use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
 use Symfony\Component\Mailer\Bridge\MicrosoftGraph\Tests\TokenManagerMock;
 use Symfony\Component\Mailer\Bridge\MicrosoftGraph\Transport\MicrosoftGraphApiTransport;
+use Symfony\Component\Mailer\Envelope;
 use Symfony\Component\Mailer\Exception\HttpTransportException;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
@@ -123,6 +124,28 @@ class MicrosoftGraphApiTransportTest extends TestCase
             ->text('Hello world');
 
         $transport->send($mail);
+    }
+
+    public function testEnvelopeRecipientsAreUsedInsteadOfToHeader()
+    {
+        $client = new MockHttpClient(function (string $method, string $url, array $options): ResponseInterface {
+            $message = json_decode($options['body'], true)['message'];
+
+            $this->assertCount(1, $message['toRecipients']);
+            $this->assertSame('override@symfony.com', $message['toRecipients'][0]['emailAddress']['address']);
+
+            return new MockResponse('', ['http_code' => 202]);
+        });
+
+        $transport = new MicrosoftGraphApiTransport('graph', new TokenManagerMock(), false, $client);
+
+        $mail = new Email();
+        $mail->subject('Hello!')
+            ->to(new Address('bob@symfony.com', 'Bob'))
+            ->from(new Address('fabpot@symfony.com', 'Fabien'))
+            ->text('Hello There!');
+
+        $transport->send($mail, new Envelope(new Address('fabpot@symfony.com'), [new Address('override@symfony.com')]));
     }
 
     public function testHtmlBody()

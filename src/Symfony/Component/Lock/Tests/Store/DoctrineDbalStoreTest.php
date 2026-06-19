@@ -24,6 +24,7 @@ use Doctrine\DBAL\Schema\Schema;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
+use Symfony\Component\Lock\Exception\LockConflictedException;
 use Symfony\Component\Lock\Key;
 use Symfony\Component\Lock\PersistingStoreInterface;
 use Symfony\Component\Lock\Store\DoctrineDbalStore;
@@ -116,6 +117,92 @@ class DoctrineDbalStoreTest extends AbstractStoreTestCase
         } finally {
             $pdo = new \PDO('pgsql:host='.$host.';user=postgres;password=password');
             $pdo->exec('DROP TABLE IF EXISTS lock_keys');
+        }
+    }
+
+    #[RequiresPhpExtension('pdo_pgsql')]
+    #[Group('integration')]
+    public function testSaveDoesNotAbortSurroundingPostgresTransactionOnLockContention()
+    {
+        if (!$host = getenv('POSTGRES_HOST')) {
+            $this->markTestSkipped('Missing POSTGRES_HOST env variable');
+        }
+
+        $config = new Configuration();
+        if (class_exists(DefaultSchemaManagerFactory::class)) {
+            $config->setSchemaManagerFactory(new DefaultSchemaManagerFactory());
+        }
+        $conn = DriverManager::getConnection([
+            'driver' => 'pdo_pgsql',
+            'host' => $host,
+            'user' => 'postgres',
+            'password' => 'password',
+        ], $config);
+
+        $resource = uniqid(__METHOD__, true);
+
+        try {
+            $store = new DoctrineDbalStore($conn);
+            $store->createTable();
+
+            $owner = new Key($resource);
+            $store->save($owner);
+
+            $conn->beginTransaction();
+
+            $contender = new Key($resource);
+            try {
+                $store->save($contender);
+                $this->fail('LockConflictedException was expected.');
+            } catch (LockConflictedException) {
+                // expected
+            }
+
+            $this->assertSame('alive', $conn->fetchOne("SELECT 'alive'"), 'The surrounding transaction must remain usable after a lock conflict.');
+            $conn->rollBack();
+        } finally {
+            if ($conn->isTransactionActive()) {
+                $conn->rollBack();
+            }
+            $conn->executeStatement('DROP TABLE IF EXISTS lock_keys');
+        }
+    }
+
+    #[RequiresPhpExtension('pdo_pgsql')]
+    #[Group('integration')]
+    public function testSavePostgresRefreshesSameKeyInsideTransaction()
+    {
+        if (!$host = getenv('POSTGRES_HOST')) {
+            $this->markTestSkipped('Missing POSTGRES_HOST env variable');
+        }
+
+        $config = new Configuration();
+        if (class_exists(DefaultSchemaManagerFactory::class)) {
+            $config->setSchemaManagerFactory(new DefaultSchemaManagerFactory());
+        }
+        $conn = DriverManager::getConnection([
+            'driver' => 'pdo_pgsql',
+            'host' => $host,
+            'user' => 'postgres',
+            'password' => 'password',
+        ], $config);
+
+        try {
+            $store = new DoctrineDbalStore($conn);
+            $store->createTable();
+
+            $key = new Key(uniqid(__METHOD__, true));
+            $store->save($key);
+
+            $conn->beginTransaction();
+            $store->save($key);
+            $this->assertTrue($store->exists($key));
+            $conn->rollBack();
+        } finally {
+            if ($conn->isTransactionActive()) {
+                $conn->rollBack();
+            }
+            $conn->executeStatement('DROP TABLE IF EXISTS lock_keys');
         }
     }
 
@@ -258,34 +345,31 @@ class DoctrineDbalStoreTest extends AbstractStoreTestCase
     public function testConfigureSchemaDifferentDatabase()
     {
         $conn = $this->createStub(Connection::class);
-        $someFunction = static fn () => false;
-        $schema = new Schema();
-
         $dbalStore = new DoctrineDbalStore($conn);
-        $dbalStore->configureSchema($schema, $someFunction);
+        $schema = $dbalStore->configureSchema(new Schema(), static fn () => false);
         $this->assertFalse($schema->hasTable('lock_keys'));
     }
 
     public function testConfigureSchemaSameDatabase()
     {
         $conn = $this->createStub(Connection::class);
-        $someFunction = static fn () => true;
-        $schema = new Schema();
-
         $dbalStore = new DoctrineDbalStore($conn);
-        $dbalStore->configureSchema($schema, $someFunction);
+        $schema = $dbalStore->configureSchema(new Schema(), static fn () => true);
         $this->assertTrue($schema->hasTable('lock_keys'));
     }
 
     public function testConfigureSchemaTableExists()
     {
-        $conn = $this->createStub(Connection::class);
-        $schema = new Schema();
-        $schema->createTable('lock_keys');
+        if (method_exists(Schema::class, 'edit')) {
+            $schema = (new Schema())->edit()->addTable(new \Doctrine\DBAL\Schema\Table('lock_keys'))->create();
+        } else {
+            $schema = new Schema();
+            $schema->createTable('lock_keys');
+        }
 
+        $conn = $this->createStub(Connection::class);
         $dbalStore = new DoctrineDbalStore($conn);
-        $someFunction = static fn () => true;
-        $dbalStore->configureSchema($schema, $someFunction);
+        $schema = $dbalStore->configureSchema($schema, static fn () => true);
         $table = $schema->getTable('lock_keys');
         $this->assertSame([], $table->getColumns(), 'The table was not overwritten');
     }

@@ -12,7 +12,6 @@
 namespace Symfony\Component\Serializer\Tests\Normalizer;
 
 use PHPUnit\Framework\Attributes\DataProvider;
-use PHPUnit\Framework\Attributes\RequiresMethod;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\PropertyAccess\PropertyAccess;
 use Symfony\Component\PropertyAccess\PropertyPath;
@@ -65,6 +64,8 @@ use Symfony\Component\Serializer\Tests\Fixtures\DummyWithObjectOrBool;
 use Symfony\Component\Serializer\Tests\Fixtures\DummyWithObjectOrNull;
 use Symfony\Component\Serializer\Tests\Fixtures\DummyWithStringObject;
 use Symfony\Component\Serializer\Tests\Normalizer\Features\ObjectDummyWithContextAttribute;
+use Symfony\Component\Serializer\Tests\Normalizer\Features\ObjectInner;
+use Symfony\Component\Serializer\Tests\Normalizer\Features\ObjectOuter;
 use Symfony\Component\TypeInfo\Type;
 
 class AbstractObjectNormalizerTest extends TestCase
@@ -727,7 +728,8 @@ class AbstractObjectNormalizerTest extends TestCase
         $this->assertInstanceOf(AbstractDummySecondChild::class, $denormalizedData);
     }
 
-    public function testDenormalizeBasicTypePropertiesFromXml()
+    #[DataProvider('denormalizeBasicTypePropertiesConversionDataProvider')]
+    public function testDenormalizeBasicTypePropertiesConversion(string $format, array $context = [])
     {
         $denormalizer = $this->getDenormalizerForObjectWithBasicProperties();
 
@@ -748,7 +750,8 @@ class AbstractObjectNormalizerTest extends TestCase
                 'floatNegInf' => '-INF',
             ],
             ObjectWithBasicProperties::class,
-            'xml'
+            $format,
+            $context
         );
 
         $this->assertInstanceOf(ObjectWithBasicProperties::class, $objectWithBooleanProperties);
@@ -770,6 +773,30 @@ class AbstractObjectNormalizerTest extends TestCase
         $this->assertNan($objectWithBooleanProperties->floatNaN);
         $this->assertInfinite($objectWithBooleanProperties->floatInf);
         $this->assertEquals(-\INF, $objectWithBooleanProperties->floatNegInf);
+    }
+
+    public function testDenormalizeBasicTypePropertiesThrowsWithoutTypeConversion()
+    {
+        $this->expectException(NotNormalizableValueException::class);
+        $this->expectExceptionMessageMatches('/must be one of "bool" \("string" given\)/');
+        $denormalizer = $this->getDenormalizerForObjectWithBasicProperties();
+        $denormalizer->denormalize(
+            [
+                'boolTrue1' => 'true',
+            ],
+            ObjectWithBasicProperties::class,
+            'other',
+            [AbstractObjectNormalizer::ENABLE_TYPE_CONVERSION => false]
+        );
+    }
+
+    public static function denormalizeBasicTypePropertiesConversionDataProvider(): array
+    {
+        return [
+            ['xml', []],
+            ['csv', []],
+            ['other', [AbstractObjectNormalizer::ENABLE_TYPE_CONVERSION => true]],
+        ];
     }
 
     private function getDenormalizerForObjectWithBasicProperties()
@@ -932,7 +959,6 @@ class AbstractObjectNormalizerTest extends TestCase
         $this->assertEquals(new DummyWithSelfConstructorPromotedParameter('A', new DummyWithSelfConstructorPromotedParameter('B')), $serializer->denormalize($normalized, DummyWithSelfConstructorPromotedParameter::class));
     }
 
-    #[RequiresMethod(ReflectionTypeResolver::class, 'resolve')]
     public function testDenormalizeUsesConstructorUnionTypeWhenExtractorIsLessPrecise()
     {
         $extractor = new class implements PropertyTypeExtractorInterface {
@@ -947,9 +973,63 @@ class AbstractObjectNormalizerTest extends TestCase
             }
         };
 
-        $serializer = new Serializer([new ObjectNormalizer(propertyTypeExtractor: $extractor)]);
+        $serializer = new Serializer([new ObjectNormalizer(null, null, null, $extractor)]);
 
         $this->assertEquals(new DummyWithIntOrString(1), $serializer->denormalize(['value' => 1], DummyWithIntOrString::class));
+    }
+
+    public function testDenormalizeMixedConstructorParameterUsesExtractorType()
+    {
+        $extractor = new PropertyInfoExtractor([], [new ReflectionExtractor()]);
+
+        $entityDenormalizer = new class implements DenormalizerInterface {
+            public function denormalize(mixed $data, string $type, ?string $format = null, array $context = []): mixed
+            {
+                return new DummyEntity((int) $data);
+            }
+
+            public function supportsDenormalization(mixed $data, string $type, ?string $format = null, array $context = []): bool
+            {
+                return DummyEntity::class === $type;
+            }
+
+            public function getSupportedTypes(?string $format): array
+            {
+                return [DummyEntity::class => true];
+            }
+        };
+
+        $serializer = new Serializer([
+            $entityDenormalizer,
+            new ObjectNormalizer(null, null, null, $extractor),
+        ]);
+
+        $result = $serializer->denormalize(['entity' => 42], DummyWithMixedConstructorParamAndEntityGetter::class);
+
+        $this->assertInstanceOf(DummyWithMixedConstructorParamAndEntityGetter::class, $result);
+        $this->assertInstanceOf(DummyEntity::class, $result->getEntity());
+        $this->assertSame(42, $result->getEntity()->id);
+    }
+
+    public function testDenormalizeIterableConstructorParameterDenormalizesItems()
+    {
+        if (!method_exists(PropertyInfoExtractor::class, 'getType')) {
+            $this->markTestSkipped('The PropertyInfo component before Symfony 7.1 does not keep the collection value type for iterable constructor parameters.');
+        }
+
+        $serializer = new Serializer([
+            new ArrayDenormalizer(),
+            new ObjectNormalizer(null, null, null, new PropertyInfoExtractor([], [new PhpDocExtractor(), new ReflectionExtractor()])),
+        ]);
+
+        $result = $serializer->denormalize(
+            ['items' => [['value' => 'foo'], ['value' => 'bar']]],
+            DummyWithIterableOfDtos::class,
+        );
+
+        $this->assertInstanceOf(DummyWithIterableOfDtos::class, $result);
+        $this->assertContainsOnlyInstancesOf(DummyDtoItem::class, $result->items);
+        $this->assertSame(['foo', 'bar'], array_map(static fn (DummyDtoItem $i) => $i->value, $result->items));
     }
 
     public function testDenormalizeWithNumberAsSerializedNameAndNoArrayReindex()
@@ -1277,7 +1357,7 @@ class AbstractObjectNormalizerTest extends TestCase
 
         $classMetadataFactory = new ClassMetadataFactory(new AttributeLoader());
         $normalizer = new ObjectNormalizer($classMetadataFactory);
-        $normalized = $normalizer->normalize($object, context: [
+        $normalized = $normalizer->normalize($object, null, [
             AbstractObjectNormalizer::ENABLE_MAX_DEPTH => true,
         ]);
 
@@ -1437,7 +1517,7 @@ class AbstractObjectNormalizerTest extends TestCase
 
     public function testTemplateTypeWhenAnObjectIsPassedToDenormalize()
     {
-        $normalizer = new class(classMetadataFactory: new ClassMetadataFactory(new AttributeLoader()), propertyTypeExtractor: new PropertyInfoExtractor(typeExtractors: [new PhpStanExtractor(), new ReflectionExtractor()])) extends AbstractObjectNormalizerDummy {
+        $normalizer = new class(new ClassMetadataFactory(new AttributeLoader()), null, new PropertyInfoExtractor([], [new PhpStanExtractor(), new ReflectionExtractor()])) extends AbstractObjectNormalizerDummy {
             protected function isAllowedAttribute($classOrObject, string $attribute, ?string $format = null, array $context = []): bool
             {
                 return true;
@@ -2069,4 +2149,46 @@ class DummyBoolField
 class DummyIntField
 {
     public int $field;
+}
+
+class DummyEntity
+{
+    public function __construct(
+        public int $id,
+    ) {
+    }
+}
+
+class DummyWithMixedConstructorParamAndEntityGetter
+{
+    public function __construct(
+        private mixed $entity = null,
+    ) {
+    }
+
+    public function getEntity(): ?DummyEntity
+    {
+        return $this->entity;
+    }
+}
+
+class DummyDtoItem
+{
+    public string $value;
+}
+
+class DummyWithIterableOfDtos
+{
+    /** @var array<DummyDtoItem> */
+    public array $items;
+
+    /**
+     * @param iterable<DummyDtoItem> $items
+     */
+    public function __construct(iterable $items)
+    {
+        $this->items = iterator_to_array((static function () use ($items) {
+            yield from $items;
+        })());
+    }
 }

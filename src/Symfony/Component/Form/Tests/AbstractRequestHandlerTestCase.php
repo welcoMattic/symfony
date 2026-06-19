@@ -16,6 +16,7 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Component\EventDispatcher\EventDispatcher;
 use Symfony\Component\Form\Extension\Core\DataMapper\DataMapper;
 use Symfony\Component\Form\Extension\Core\Type\CheckboxType;
+use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
 use Symfony\Component\Form\Extension\Core\Type\CollectionType;
 use Symfony\Component\Form\Extension\Core\Type\FormType;
 use Symfony\Component\Form\Extension\Core\Type\TextType;
@@ -27,6 +28,7 @@ use Symfony\Component\Form\FormRegistry;
 use Symfony\Component\Form\Forms;
 use Symfony\Component\Form\RequestHandlerInterface;
 use Symfony\Component\Form\ResolvedFormTypeFactory;
+use Symfony\Component\Form\Tests\Extension\Type\CheckboxCollectionEntryType;
 use Symfony\Component\Form\Tests\Extension\Type\ItemFileType;
 use Symfony\Component\Form\Util\ServerParams;
 
@@ -70,11 +72,11 @@ abstract class AbstractRequestHandlerTestCase extends TestCase
             'method' => $method,
         ]);
 
-        $this->setRequestData($method, []);
+        $this->setRequestData($method, ['collection' => []]);
 
         $this->requestHandler->handleRequest($form, $this->request);
 
-        $this->assertEqualsCanonicalizing([false, false, false], $form->getData());
+        $this->assertSame([false, false, false], $form->getData());
     }
 
     #[DataProvider('methodExceptPatchProvider')]
@@ -93,7 +95,30 @@ abstract class AbstractRequestHandlerTestCase extends TestCase
 
         $this->requestHandler->handleRequest($form, $this->request);
 
-        $this->assertEqualsCanonicalizing([false, true, false], $form->getData());
+        $this->assertSame([false, true, false], $form->getData());
+    }
+
+    #[DataProvider('methodExceptPatchProvider')]
+    public function testSubmitCollectionFormWithAllowDeleteRemovesMissingEntries($method)
+    {
+        $form = $this->factory->create(CollectionType::class, [
+            ['name' => 'first', 'active' => true],
+            ['name' => 'second', 'active' => true],
+        ], [
+            'entry_type' => CheckboxCollectionEntryType::class,
+            'allow_delete' => true,
+            'method' => $method,
+        ]);
+
+        $this->setRequestData($method, [
+            'collection' => [
+                0 => ['name' => 'first', 'active' => '1'],
+            ],
+        ]);
+
+        $this->requestHandler->handleRequest($form, $this->request);
+
+        $this->assertSame([0 => ['name' => 'first', 'active' => true]], $form->getData());
     }
 
     #[DataProvider('methodExceptPatchProvider')]
@@ -109,7 +134,7 @@ abstract class AbstractRequestHandlerTestCase extends TestCase
         $form->get('subform')
             ->add('checkbox', CheckboxType::class);
 
-        $this->setRequestData($method, []);
+        $this->setRequestData($method, ['form' => []]);
 
         $this->requestHandler->handleRequest($form, $this->request);
 
@@ -117,17 +142,77 @@ abstract class AbstractRequestHandlerTestCase extends TestCase
     }
 
     #[DataProvider('methodExceptPatchProvider')]
-    public function testSubmitSimpleCheckboxFormWithEmptyData($method)
+    public function testSubmitExpandedMultipleChoiceWithPartialDataDoesNotEmitArrayFlipWarning($method)
     {
-        $form = $this->factory->createNamed('checkbox', CheckboxType::class, true, [
+        $form = $this->factory->createNamed('roles', ChoiceType::class, null, [
             'method' => $method,
+            'multiple' => true,
+            'expanded' => true,
+            'choices' => [
+                'User' => 'ROLE_USER',
+                'Admin' => 'ROLE_ADMIN',
+                'Super Admin' => 'ROLE_SUPER_ADMIN',
+            ],
         ]);
 
-        $this->setRequestData($method, []);
+        $this->setRequestData($method, [
+            'roles' => ['ROLE_USER'],
+        ]);
+
+        $warnings = [];
+        set_error_handler(static function (int $severity, string $message) use (&$warnings): bool {
+            if (str_contains($message, 'array_flip')) {
+                $warnings[] = $message;
+
+                return true;
+            }
+
+            return false;
+        });
+
+        try {
+            $this->requestHandler->handleRequest($form, $this->request);
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertSame([], $warnings, 'No array_flip() warnings should be emitted when only some checkboxes are checked.');
+        $this->assertSame(['ROLE_USER'], $form->getData());
+    }
+
+    #[DataProvider('methodProvider')]
+    public function testDoNotSubmitAbsentNamedFormWithCheckboxesWhenRequestBodyContainsOtherData($method)
+    {
+        $form = $this->factory->createNamed('form', FormType::class, null, ['method' => $method])
+            ->add('displayedColumns', ChoiceType::class, [
+                'choices' => ['foo' => 'foo', 'bar' => 'bar'],
+                'expanded' => true,
+                'multiple' => true,
+            ]);
+
+        $this->setRequestData($method, ['other_field' => 'value']);
 
         $this->requestHandler->handleRequest($form, $this->request);
 
-        $this->assertFalse($form->getData());
+        $this->assertFalse($form->isSubmitted());
+    }
+
+    #[DataProvider('methodExceptPatchProvider')]
+    public function testSubmitNamedFormWithMissingCheckboxesWhenFormKeyIsPresentInRequest($method)
+    {
+        $form = $this->factory->createNamed('form', FormType::class, null, ['method' => $method])
+            ->add('displayedColumns', ChoiceType::class, [
+                'choices' => ['foo' => 'foo', 'bar' => 'bar'],
+                'expanded' => true,
+                'multiple' => true,
+            ]);
+
+        $this->setRequestData($method, ['form' => []]);
+
+        $this->requestHandler->handleRequest($form, $this->request);
+
+        $this->assertTrue($form->isSubmitted());
+        $this->assertSame([], $form->get('displayedColumns')->getData());
     }
 
     public static function methodExceptPatchProvider(): array

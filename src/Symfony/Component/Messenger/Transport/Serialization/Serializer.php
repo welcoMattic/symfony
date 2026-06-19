@@ -32,7 +32,7 @@ use Symfony\Component\Serializer\SerializerInterface as SymfonySerializerInterfa
 /**
  * @author Samuel Roze <samuel.roze@gmail.com>
  */
-class Serializer implements SerializerInterface
+class Serializer implements SerializerInterface, MessageTypeAwareSerializerInterface
 {
     public const MESSENGER_SERIALIZATION_CONTEXT = 'messenger_serialization';
     private const STAMP_HEADER_PREFIX = 'X-Message-Stamp-';
@@ -45,7 +45,7 @@ class Serializer implements SerializerInterface
     private array $classToTypeMap = [];
 
     /**
-     * @pram array<string, class-string> $typeToClassMap
+     * @param array<string, class-string> $typeToClassMap
      */
     public function __construct(
         ?SymfonySerializerInterface $serializer = null,
@@ -113,6 +113,13 @@ class Serializer implements SerializerInterface
         }
 
         return new Envelope($message, $stamps);
+    }
+
+    public function getMessageType(array $encodedEnvelope): ?string
+    {
+        $type = $encodedEnvelope['headers']['type'] ?? null;
+
+        return null === $type ? null : ($this->typeToClassMap[$type] ?? $type);
     }
 
     public function encode(Envelope $envelope): array

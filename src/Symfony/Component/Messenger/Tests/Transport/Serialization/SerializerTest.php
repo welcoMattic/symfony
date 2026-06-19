@@ -78,6 +78,25 @@ class SerializerTest extends TestCase
         $this->assertSame('application/json', $encoded['headers']['Content-Type']);
     }
 
+    public function testGetMessageType()
+    {
+        $serializer = new Serializer();
+
+        $this->assertSame(DummyMessage::class, $serializer->getMessageType($serializer->encode(new Envelope(new DummyMessage('Hello')))));
+        $this->assertNull($serializer->getMessageType(['body' => '{}']));
+        $this->assertNull($serializer->getMessageType(['body' => '{}', 'headers' => []]));
+    }
+
+    public function testGetMessageTypeResolvesLogicalTypeViaTypeToClassMap()
+    {
+        $serializer = new Serializer(typeToClassMap: ['dummy.message' => DummyMessageWithSerializedTypeName::class]);
+
+        $encoded = $serializer->encode(new Envelope(new DummyMessageWithSerializedTypeName('Hello')));
+
+        $this->assertSame('dummy.message', $encoded['headers']['type']);
+        $this->assertSame(DummyMessageWithSerializedTypeName::class, $serializer->getMessageType($encoded));
+    }
+
     public function testUsesTheCustomFormatAndContext()
     {
         $message = new DummyMessage('Foo');

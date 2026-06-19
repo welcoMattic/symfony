@@ -107,7 +107,10 @@ class Configuration implements ConfigurationInterface
                     ->info('Set true to enable support for xsendfile in binary file responses.')
                     ->defaultValue('%env(bool:default::SYMFONY_TRUST_X_SENDFILE_TYPE_HEADER)%')
                 ->end()
-                ->scalarNode('ide')->defaultValue($this->debug ? '%env(default::SYMFONY_IDE)%' : null)->end()
+                ->scalarNode('ide')
+                    ->defaultValue($this->debug ? '%env(default::SYMFONY_IDE)%' : null)
+                    ->setDeprecated('symfony/framework-bundle', '8.2', 'Setting the "%path%.%node%" configuration option is deprecated, use the "SYMFONY_IDE" env var instead.')
+                ->end()
                 ->booleanNode('test')->end()
                 ->scalarNode('default_locale')->defaultValue('en')->end()
                 ->booleanNode('set_locale_from_accept_language')
@@ -162,6 +165,7 @@ class Configuration implements ConfigurationInterface
         $this->addEsiSection($rootNode);
         $this->addSsiSection($rootNode);
         $this->addFragmentsSection($rootNode);
+        $this->addUriSignerSection($rootNode);
         $this->addProfilerSection($rootNode);
         $this->addWorkflowSection($rootNode);
         $this->addRouterSection($rootNode);
@@ -244,6 +248,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addFormSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $rootNode
@@ -344,6 +351,24 @@ class Configuration implements ConfigurationInterface
                     ->children()
                         ->scalarNode('hinclude_default_template')->defaultNull()->end()
                         ->scalarNode('path')->defaultValue('/_fragment')->end()
+                    ->end()
+                ->end()
+            ->end()
+        ;
+    }
+
+    private function addUriSignerSection(ArrayNodeDefinition $rootNode): void
+    {
+        $rootNode
+            ->children()
+                ->arrayNode('uri_signer')
+                    ->info('URI signer configuration')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->integerNode('expiration')
+                            ->info('Default expiration of signed URIs, in seconds.')
+                            ->defaultNull()
+                        ->end()
                     ->end()
                 ->end()
             ->end()
@@ -493,16 +518,46 @@ class Configuration implements ConfigurationInterface
                                                 }
 
                                                 foreach ($v as $value) {
-                                                    if (!\in_array($value, WorkflowEvents::ALIASES, true)) {
+                                                    $name = str_starts_with($value, '!') ? substr($value, 1) : $value;
+                                                    if (!\in_array($name, WorkflowEvents::ALIASES, true)) {
                                                         return true;
                                                     }
                                                 }
 
                                                 return false;
                                             })
-                                            ->thenInvalid('The value must be "null" or an array of workflow events (like ["workflow.enter"]).')
+                                            ->thenInvalid('The value must be "null" or an array of workflow events (like ["workflow.enter"]). Prefix an event with "!" to disable it (e.g. ["!workflow.announce"]).')
                                         ->end()
-                                        ->info('Select which Transition events should be dispatched for this Workflow.')
+                                        ->validate()
+                                            ->ifTrue(static function ($v) {
+                                                if (!\is_array($v) || [] === $v) {
+                                                    return false;
+                                                }
+                                                $hasAllowList = false;
+                                                $hasBlockList = false;
+                                                foreach ($v as $value) {
+                                                    if (str_starts_with($value, '!')) {
+                                                        $hasBlockList = true;
+                                                    } else {
+                                                        $hasAllowList = true;
+                                                    }
+                                                }
+
+                                                return $hasAllowList && $hasBlockList;
+                                            })
+                                            ->thenInvalid('Cannot mix allow-list and block-list entries in "events_to_dispatch": every entry must start with "!" (block-list mode) or none of them must (allow-list mode).')
+                                        ->end()
+                                        ->validate()
+                                            ->ifTrue(static function ($v) {
+                                                if (!class_exists(WorkflowEvents::class) || !\is_array($v)) {
+                                                    return false;
+                                                }
+
+                                                return \in_array('!'.WorkflowEvents::GUARD, $v, true);
+                                            })
+                                            ->thenInvalid('The "workflow.guard" event cannot be disabled in "events_to_dispatch": it is always dispatched.')
+                                        ->end()
+                                        ->info('Select which Transition events should be dispatched for this Workflow. Prefix an event with "!" to disable it (e.g. ["!workflow.announce"]); future events are dispatched by default in block-list mode.')
                                         ->example(['workflow.enter', 'workflow.transition'])
                                     ->end()
                                     ->arrayNode('places', 'place')
@@ -829,6 +884,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addAssetsSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $rootNode
@@ -910,6 +968,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addAssetMapperSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $rootNode
@@ -1031,6 +1092,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addTranslatorSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $rootNode
@@ -1118,6 +1182,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addValidationSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $rootNode
@@ -1153,6 +1220,10 @@ class Configuration implements ConfigurationInterface
                             ->end()
                         ->end()
                         ->booleanNode('disable_translation')
+                            ->defaultFalse()
+                        ->end()
+                        ->booleanNode('property_metadata_existence_check')
+                            ->info('When enabled, validateProperty() and validatePropertyValue() throw an exception if no metadata is found for the given property.')
                             ->defaultFalse()
                         ->end()
                         ->arrayNode('auto_mapping')
@@ -1204,6 +1275,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addSerializerSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $defaultContextNode = fn () => (new NodeBuilder())
@@ -1272,6 +1346,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $willBeAvailable
+     */
     private function addPropertyAccessSection(ArrayNodeDefinition $rootNode, callable $willBeAvailable): void
     {
         $rootNode
@@ -1292,6 +1369,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addPropertyInfoSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $rootNode
@@ -1310,6 +1390,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addTypeInfoSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $rootNode
@@ -1332,6 +1415,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $willBeAvailable
+     */
     private function addCacheSection(ArrayNodeDefinition $rootNode, callable $willBeAvailable): void
     {
         $rootNode
@@ -1514,6 +1600,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addLockSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $rootNode
@@ -1580,6 +1669,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addSemaphoreSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $rootNode
@@ -1635,6 +1727,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addWebLinkSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $rootNode
@@ -1647,6 +1742,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addMessengerSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $rootNode
@@ -1852,6 +1950,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addSchedulerSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $rootNode
@@ -1877,6 +1978,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addHttpClientSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $rootNode
@@ -2286,6 +2390,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addMailerSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $rootNode
@@ -2428,6 +2535,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addNotifierSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $rootNode
@@ -2467,6 +2577,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addWebhookSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $rootNode
@@ -2500,6 +2613,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addRemoteEventSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $rootNode
@@ -2512,6 +2628,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addRateLimiterSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $rootNode
@@ -2575,10 +2694,22 @@ class Configuration implements ConfigurationInterface
                                             ->integerNode('amount')->info('Amount of tokens to add each interval.')->defaultValue(1)->end()
                                         ->end()
                                     ->end()
+                                    ->scalarNode('anchor_at')
+                                        ->info('Aligns the "fixed_window" policy to a calendar (e.g. "2024-01-05 00:00:00 UTC" combined with `interval: 1 month` resets the counter on the 5th of each month). UTC if not specified.')
+                                        ->defaultNull()
+                                    ->end()
                                 ->end()
                                 ->validate()
                                     ->ifTrue(static fn ($v) => !\in_array($v['policy'], ['no_limit', 'compound'], true) && !isset($v['limit']))
                                     ->thenInvalid('A limit must be provided when using a policy different than "compound" or "no_limit".')
+                                ->end()
+                                ->validate()
+                                    ->ifTrue(static fn ($v) => isset($v['anchor_at']) && 'fixed_window' !== $v['policy'])
+                                    ->thenInvalid('The "anchor_at" option is only supported with the "fixed_window" policy.')
+                                ->end()
+                                ->validate()
+                                    ->ifTrue(static fn ($v) => isset($v['anchor_at']) && isset($v['interval']) && !preg_match('/\b(months?|years?)\b/i', $v['interval']))
+                                    ->thenInvalid('The "anchor_at" option requires an "interval" of at least one month.')
                                 ->end()
                             ->end()
                         ->end()
@@ -2588,6 +2719,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addUidSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $rootNode
@@ -2615,12 +2749,19 @@ class Configuration implements ConfigurationInterface
                         ->scalarNode('time_based_uuid_node')
                             ->cannotBeEmpty()
                         ->end()
+                        ->scalarNode('uuid47_secret')
+                            ->info('A high-entropy secret used by the "uuid47_transformer" service. Defaults to "kernel.secret".')
+                            ->defaultNull()
+                        ->end()
                     ->end()
                 ->end()
             ->end()
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addHtmlSanitizerSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $rootNode
@@ -2757,6 +2898,9 @@ class Configuration implements ConfigurationInterface
         ;
     }
 
+    /**
+     * @param-immediately-invoked-callable $enableIfStandalone
+     */
     private function addJsonStreamerSection(ArrayNodeDefinition $rootNode, callable $enableIfStandalone): void
     {
         $rootNode

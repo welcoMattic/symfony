@@ -8,13 +8,19 @@ of objects:
   plain PHP code. While doing so, it preserves all the semantics associated with
   the serialization mechanism of PHP (`__wakeup`, `__sleep`, `Serializable`,
   `__serialize`, `__unserialize`);
-- `Instantiator::instantiate()` creates an object and sets its properties without
-  calling its constructor nor any other methods;
-- `Hydrator::hydrate()` can set the properties of an existing object;
 - `DeepCloner` deep-clones PHP values while preserving copy-on-write benefits
   for strings and arrays, making it faster and more memory efficient than
   `unserialize(serialize())`;
-- `Lazy*Trait` can make a class behave as a lazy-loading ghost or virtual proxy.
+- `ProxyHelper::generateLazyProxy()` generates lazy-loading decorators for
+  abstract or internal classes and for interfaces (use native lazy objects
+  for regular concrete classes).
+
+The component depends on the native [`ext-deepclone`](https://github.com/symfony/php-ext-deepclone)
+extension for maximum performance, or on [its polyfill](https://github.com/symfony/polyfill/tree/main/src/DeepClone)
+as a fallback. In addition to functions `deepclone_to_array()` and `deepclone_from_array()`
+which are leveraged by `DeepCloner` and `VarExporter::export()`, the extension
+provides a `deepclone_hydrate()` function that lets you instantiate / hydrate objects
+without calling their constructor, including private, protected and readonly properties.
 
 VarExporter::export()
 ---------------------
@@ -37,28 +43,6 @@ It also provides a few improvements over `var_export()`/`serialize()`:
  * `Reflection*`, `IteratorIterator` and `RecursiveIteratorIterator` classes
    throw an exception when being serialized (their unserialized version is broken
    anyway, see https://bugs.php.net/76737).
-
-Instantiator and Hydrator
--------------------------
-
-`Instantiator::instantiate($class)` creates an object of the given class without
-calling its constructor nor any other methods.
-
-`Hydrator::hydrate()` sets the properties of an existing object, including
-private and protected ones. For example:
-
-```php
-// Sets the public or protected $object->propertyName property
-Hydrator::hydrate($object, ['propertyName' => $propertyValue]);
-
-// Sets a private property defined on its parent Bar class:
-Hydrator::hydrate($object, ["\0Bar\0privateBarProperty" => $propertyValue]);
-
-// Alternative way to set the private $object->privateBarProperty property
-Hydrator::hydrate($object, [], [
-    Bar::class => ['privateBarProperty' => $propertyValue],
-]);
-```
 
 DeepCloner
 ----------
@@ -107,6 +91,13 @@ $foo = FooLazyProxy::createLazyProxy(initializer: function (): AbstractFoo {
 // be called only when and if a *method* is called.
 ```
 
+Sponsor
+-------
+
+This package is looking for a [backer][1].
+
+Help Symfony by [sponsoring][3] its development!
+
 Resources
 ---------
 
@@ -115,3 +106,6 @@ Resources
  * [Report issues](https://github.com/symfony/symfony/issues) and
    [send Pull Requests](https://github.com/symfony/symfony/pulls)
    in the [main Symfony repository](https://github.com/symfony/symfony)
+
+[1]: https://symfony.com/backers
+[3]: https://symfony.com/sponsor

@@ -22,6 +22,7 @@ use Symfony\Component\Config\Loader\LoaderResolver;
 use Symfony\Component\Config\Resource\FileResource;
 use Symfony\Component\Config\Resource\GlobResource;
 use Symfony\Component\DependencyInjection\Argument\BoundArgument;
+use Symfony\Component\DependencyInjection\Argument\EnvClosureArgument;
 use Symfony\Component\DependencyInjection\Argument\IteratorArgument;
 use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
 use Symfony\Component\DependencyInjection\Argument\ServiceLocatorArgument;
@@ -417,9 +418,7 @@ class YamlFileLoaderTest extends TestCase
         }
     }
 
-    #[IgnoreDeprecations]
-    #[Group('legacy')]
-    public function testTaggedArgumentsWithIndex()
+    public function testTaggedArguments()
     {
         $container = new ContainerBuilder();
         $loader = new YamlFileLoader($container, new FileLocator(self::$fixturesPath.'/yaml'));
@@ -429,22 +428,37 @@ class YamlFileLoaderTest extends TestCase
         $this->assertCount(1, $container->getDefinition('foo_service_tagged_iterator')->getArguments());
         $this->assertCount(1, $container->getDefinition('foo_service_tagged_locator')->getArguments());
 
+        $taggedIterator = new TaggedIteratorArgument('foo', null, false, ['baz']);
+        $this->assertEquals($taggedIterator, $container->getDefinition('foo_service_tagged_iterator')->getArgument(0));
+        $taggedIterator2 = new TaggedIteratorArgument('foo', null, false, ['baz', 'qux'], false);
+        $this->assertEquals($taggedIterator2, $container->getDefinition('foo2_service_tagged_iterator')->getArgument(0));
+
+        $taggedIterator = new TaggedIteratorArgument('foo', 'foo', true, ['baz']);
+        $this->assertEquals(new ServiceLocatorArgument($taggedIterator), $container->getDefinition('foo_service_tagged_locator')->getArgument(0));
+        $taggedIterator2 = new TaggedIteratorArgument('foo', 'foo', true, ['baz', 'qux'], false);
+        $this->assertEquals(new ServiceLocatorArgument($taggedIterator2), $container->getDefinition('foo2_service_tagged_locator')->getArgument(0));
+
+        $taggedIterator = new TaggedIteratorArgument('foo', null, true);
+        $this->assertEquals(new ServiceLocatorArgument($taggedIterator), $container->getDefinition('bar_service_tagged_locator')->getArgument(0));
+    }
+
+    #[IgnoreDeprecations]
+    #[Group('legacy')]
+    public function testDeprecatedTaggedArguments()
+    {
+        $container = new ContainerBuilder();
+        $loader = new YamlFileLoader($container, new FileLocator(self::$fixturesPath.'/yaml'));
+        $loader->load('services_with_deprecated_tagged_argument.yml');
+
+        $this->assertCount(1, $container->getDefinition('foo_service')->getTag('foo'));
+        $this->assertCount(1, $container->getDefinition('foo_service_tagged_iterator')->getArguments());
+        $this->assertCount(1, $container->getDefinition('foo_service_tagged_locator')->getArguments());
+
         $taggedIterator = new TaggedIteratorArgument('foo', 'barfoo', 'foobar', false, 'getPriority');
         $this->assertEquals($taggedIterator, $container->getDefinition('foo_service_tagged_iterator')->getArgument(0));
-        $taggedIterator2 = new TaggedIteratorArgument('foo', null, null, false, null, ['baz']);
-        $this->assertEquals($taggedIterator2, $container->getDefinition('foo2_service_tagged_iterator')->getArgument(0));
-        $taggedIterator3 = new TaggedIteratorArgument('foo', null, null, false, null, ['baz', 'qux'], false);
-        $this->assertEquals($taggedIterator3, $container->getDefinition('foo3_service_tagged_iterator')->getArgument(0));
 
         $taggedIterator = new TaggedIteratorArgument('foo', 'barfoo', 'foobar', true, 'getPriority');
         $this->assertEquals(new ServiceLocatorArgument($taggedIterator), $container->getDefinition('foo_service_tagged_locator')->getArgument(0));
-        $taggedIterator2 = new TaggedIteratorArgument('foo', 'foo', 'getDefaultFooName', true, 'getDefaultFooPriority', ['baz']);
-        $this->assertEquals(new ServiceLocatorArgument($taggedIterator2), $container->getDefinition('foo2_service_tagged_locator')->getArgument(0));
-        $taggedIterator3 = new TaggedIteratorArgument('foo', 'foo', 'getDefaultFooName', true, 'getDefaultFooPriority', ['baz', 'qux'], false);
-        $this->assertEquals(new ServiceLocatorArgument($taggedIterator3), $container->getDefinition('foo3_service_tagged_locator')->getArgument(0));
-
-        $taggedIterator = new TaggedIteratorArgument('foo', null, null, true);
-        $this->assertEquals(new ServiceLocatorArgument($taggedIterator), $container->getDefinition('bar_service_tagged_locator')->getArgument(0));
     }
 
     public function testServiceWithServiceLocatorArgument()
@@ -483,6 +497,21 @@ class YamlFileLoaderTest extends TestCase
         $loader->load('services_with_short_service_closure.yml');
 
         $this->assertEquals(new ServiceClosureArgument(new Reference('bar')), $container->getDefinition('foo')->getArgument(0));
+    }
+
+    public function testParseEnvClosure()
+    {
+        $container = new ContainerBuilder();
+        $loader = new YamlFileLoader($container, new FileLocator(self::$fixturesPath.'/yaml'));
+        $loader->load('services_with_env_closure.yml');
+
+        $arguments = $container->getDefinition('foo')->getArguments();
+        $bag = $container->getParameterBag();
+
+        $this->assertEquals(new EnvClosureArgument($bag->resolveValue('%env(FOO)%')), $arguments[0]);
+        $this->assertEquals(new EnvClosureArgument($bag->resolveValue('%env(FOO)%'), null, true), $arguments[1]);
+        $this->assertEquals(new EnvClosureArgument($bag->resolveValue('%env(BAR)%'), 'def', true), $arguments[2]);
+        $this->assertEquals(new EnvClosureArgument($bag->resolveValue('%env(FOO)%'), 42, false), $arguments[3]);
     }
 
     public function testNameOnlyTagsAreAllowedAsString()

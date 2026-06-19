@@ -11,6 +11,7 @@
 
 namespace Symfony\Component\HtmlSanitizer\Tests;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\HtmlSanitizer\HtmlSanitizer;
 use Symfony\Component\HtmlSanitizer\HtmlSanitizerConfig;
@@ -323,6 +324,24 @@ class HtmlSanitizerCustomTest extends TestCase
         );
     }
 
+    public function testAreaUsesLinkPolicy()
+    {
+        $config = (new HtmlSanitizerConfig())
+            ->allowElement('area', ['href'])
+            ->allowLinkHosts(['trusted.com'])
+        ;
+
+        $this->assertSame(
+            '<area href="https://trusted.com" />',
+            $this->sanitize($config, '<area href="https://trusted.com">')
+        );
+
+        $this->assertSame(
+            '<area />',
+            $this->sanitize($config, '<area href="https://untrusted.com">')
+        );
+    }
+
     public function testAllowLinksRelative()
     {
         $config = (new HtmlSanitizerConfig())
@@ -405,6 +424,157 @@ class HtmlSanitizerCustomTest extends TestCase
         );
     }
 
+    public function testActionAttributeIsSanitized()
+    {
+        $config = (new HtmlSanitizerConfig())
+            ->allowElement('form', ['action'])
+        ;
+
+        $this->assertSame(
+            '<form>Hello world</form>',
+            $this->sanitize($config, '<form action="javascript:alert(1)">Hello world</form>')
+        );
+
+        $this->assertSame(
+            '<form>Hello world</form>',
+            $this->sanitize($config, '<form action="data:text/html,foo">Hello world</form>')
+        );
+
+        $this->assertSame(
+            '<form action="https://symfony.com">Hello world</form>',
+            $this->sanitize($config, '<form action="https://symfony.com">Hello world</form>')
+        );
+    }
+
+    public function testFormactionAttributeIsSanitized()
+    {
+        $config = (new HtmlSanitizerConfig())
+            ->allowElement('button', ['formaction'])
+            ->allowElement('input', ['type', 'formaction'])
+        ;
+
+        $this->assertSame(
+            '<button>Submit</button>',
+            $this->sanitize($config, '<button formaction="javascript:alert(1)">Submit</button>')
+        );
+
+        $this->assertSame(
+            '<input type="image" />',
+            $this->sanitize($config, '<input type="image" formaction="javascript:alert(1)">')
+        );
+
+        $this->assertSame(
+            '<button formaction="https://symfony.com">Submit</button>',
+            $this->sanitize($config, '<button formaction="https://symfony.com">Submit</button>')
+        );
+    }
+
+    public function testPosterAttributeIsSanitized()
+    {
+        $config = (new HtmlSanitizerConfig())
+            ->allowElement('video', ['poster'])
+        ;
+
+        $this->assertSame(
+            '<video>Hello world</video>',
+            $this->sanitize($config, '<video poster="javascript:alert(1)">Hello world</video>')
+        );
+
+        $this->assertSame(
+            '<video poster="https://symfony.com/poster.jpg">Hello world</video>',
+            $this->sanitize($config, '<video poster="https://symfony.com/poster.jpg">Hello world</video>')
+        );
+    }
+
+    public function testCiteAttributeIsSanitized()
+    {
+        $config = (new HtmlSanitizerConfig())
+            ->allowElement('blockquote', ['cite'])
+            ->allowElement('q', ['cite'])
+        ;
+
+        $this->assertSame(
+            '<blockquote>Hello world</blockquote>',
+            $this->sanitize($config, '<blockquote cite="javascript:alert(1)">Hello world</blockquote>')
+        );
+
+        $this->assertSame(
+            '<q cite="https://symfony.com">Hello world</q>',
+            $this->sanitize($config, '<q cite="https://symfony.com">Hello world</q>')
+        );
+    }
+
+    #[DataProvider('provideUrlAttributesSanitizedAcrossEmbeddingElements')]
+    public function testUrlAttributesAreSanitizedAcrossEmbeddingElements(string $element, string $attribute, string $input, string $expected)
+    {
+        $config = (new HtmlSanitizerConfig())
+            ->allowElement($element, [$attribute])
+        ;
+
+        $this->assertSame($expected, $this->sanitize($config, $input));
+    }
+
+    public static function provideUrlAttributesSanitizedAcrossEmbeddingElements(): iterable
+    {
+        yield 'object data javascript:' => [
+            'object', 'data',
+            '<object data="javascript:alert(1)">x</object>',
+            '<object>x</object>',
+        ];
+        yield 'object data http kept' => [
+            'object', 'data',
+            '<object data="https://symfony.com/x">x</object>',
+            '<object data="https://symfony.com/x">x</object>',
+        ];
+        yield 'applet codebase javascript:' => [
+            'applet', 'codebase',
+            '<applet codebase="javascript:alert(1)">x</applet>',
+            '<applet>x</applet>',
+        ];
+        yield 'applet archive javascript:' => [
+            'applet', 'archive',
+            '<applet archive="javascript:alert(1)">x</applet>',
+            '<applet>x</applet>',
+        ];
+        yield 'object codebase javascript:' => [
+            'object', 'codebase',
+            '<object codebase="javascript:alert(1)">x</object>',
+            '<object>x</object>',
+        ];
+        yield 'iframe longdesc javascript:' => [
+            'iframe', 'longdesc',
+            '<iframe longdesc="javascript:alert(1)">x</iframe>',
+            '<iframe>x</iframe>',
+        ];
+        yield 'img longdesc javascript:' => [
+            'img', 'longdesc',
+            '<img longdesc="javascript:alert(1)">',
+            '<img />',
+        ];
+    }
+
+    public function testMetaRefreshContentIsSanitized()
+    {
+        $config = (new HtmlSanitizerConfig())
+            ->allowElement('meta', ['http-equiv', 'content'])
+        ;
+
+        $this->assertSame(
+            '<meta http-equiv="refresh" />',
+            (new HtmlSanitizer($config))->sanitizeFor('head', '<meta http-equiv="refresh" content="0; url=javascript:alert(1)">')
+        );
+
+        $this->assertSame(
+            '<meta http-equiv="refresh" content="5; url&#61;https://symfony.com/" />',
+            (new HtmlSanitizer($config))->sanitizeFor('head', '<meta http-equiv="refresh" content="5; url=https://symfony.com/">')
+        );
+
+        $this->assertSame(
+            '<meta http-equiv="refresh" content="5" />',
+            (new HtmlSanitizer($config))->sanitizeFor('head', '<meta http-equiv="refresh" content="5">')
+        );
+    }
+
     public function testCustomAttributeSanitizer()
     {
         $config = (new HtmlSanitizerConfig())
@@ -431,6 +601,45 @@ class HtmlSanitizerCustomTest extends TestCase
             '<div data-attr="new value">Hello world</div>',
             $this->sanitize($config, '<div data-attr="old value">Hello world</div>')
         );
+    }
+
+    public function testWildcardAttributeSanitizerIsCalled()
+    {
+        $config = (new HtmlSanitizerConfig())
+            ->allowElement('div', ['data-foo', 'data-bar'])
+            ->withAttributeSanitizer(new class implements AttributeSanitizerInterface {
+                public function getSupportedElements(): ?array
+                {
+                    return null;
+                }
+
+                public function getSupportedAttributes(): ?array
+                {
+                    return null;
+                }
+
+                public function sanitizeAttribute(string $element, string $attribute, string $value, HtmlSanitizerConfig $config): ?string
+                {
+                    return strrev($value);
+                }
+            })
+        ;
+
+        $this->assertSame(
+            '<div data-foo="cba" data-bar="zyx">Hello world</div>',
+            $this->sanitize($config, '<div data-foo="abc" data-bar="xyz">Hello world</div>')
+        );
+    }
+
+    public function testMaxInputLengthIsAppliedToTextContext()
+    {
+        $config = (new HtmlSanitizerConfig());
+
+        $input = str_repeat('A', $config->getMaxInputLength() + 100);
+        $expected = str_repeat('A', $config->getMaxInputLength());
+
+        $this->assertSame($expected, (new HtmlSanitizer($config))->sanitizeFor('textarea', $input));
+        $this->assertSame($expected, (new HtmlSanitizer($config))->sanitizeFor('title', $input));
     }
 
     private function sanitize(HtmlSanitizerConfig $config, string $input): string

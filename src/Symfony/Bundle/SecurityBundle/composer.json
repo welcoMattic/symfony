@@ -16,7 +16,7 @@
         }
     ],
     "require": {
-        "php": ">=8.4",
+        "php": ">=8.4.1",
         "composer-runtime-api": ">=2.1",
         "ext-xml": "*",
         "symfony/clock": "^7.4|^8.0",
@@ -43,6 +43,7 @@
         "symfony/http-client": "^7.4|^8.0",
         "symfony/ldap": "^7.4|^8.0",
         "symfony/process": "^7.4|^8.0",
+        "symfony/property-info": "^7.4|^8.0",
         "symfony/rate-limiter": "^7.4|^8.0",
         "symfony/runtime": "^7.4|^8.0",
         "symfony/serializer": "^7.4|^8.0",

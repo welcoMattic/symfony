@@ -78,7 +78,7 @@ class MicrosoftGraphApiTransport extends AbstractApiTransport
             'subject' => $email->getSubject(),
             'body' => $this->getBodyPayload($email),
             'importance' => $this->getImportanceLevel($email),
-            'toRecipients' => array_map($this->getEmailAddress(...), $email->getTo()),
+            'toRecipients' => array_map($this->getEmailAddress(...), $this->getRecipients($email, $envelope)),
         ];
 
         if ($email->getFrom()) {

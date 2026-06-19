@@ -18,7 +18,11 @@ use Symfony\Component\JsonStreamer\Mapping\GenericTypePropertyMetadataLoader;
 use Symfony\Component\JsonStreamer\Mapping\PropertyMetadataLoader;
 use Symfony\Component\JsonStreamer\Mapping\PropertyMetadataLoaderInterface;
 use Symfony\Component\JsonStreamer\Mapping\Write\AttributePropertyMetadataLoader;
+use Symfony\Component\JsonStreamer\Transformer\BcMathNumberValueObjectTransformer;
+use Symfony\Component\JsonStreamer\Transformer\DateIntervalValueObjectTransformer;
 use Symfony\Component\JsonStreamer\Transformer\DateTimeValueObjectTransformer;
+use Symfony\Component\JsonStreamer\Transformer\DateTimeZoneValueObjectTransformer;
+use Symfony\Component\JsonStreamer\Transformer\GmpNumberValueObjectTransformer;
 use Symfony\Component\JsonStreamer\Transformer\PropertyValueTransformerInterface;
 use Symfony\Component\JsonStreamer\Transformer\ValueObjectTransformerInterface;
 use Symfony\Component\JsonStreamer\Write\StreamWriterGenerator;
@@ -33,6 +37,7 @@ use Symfony\Component\TypeInfo\TypeResolver\TypeResolver;
  * @psalm-type Options = array{
  *     date_time_format?: string,
  *     date_time_timezone?: string|\DateTimeZone,
+ *     date_interval_format?: string,
  *     include_null_properties?: bool,
  *     ...<string, mixed>,
  * }
@@ -105,6 +110,10 @@ final class JsonStreamWriter implements StreamWriterInterface
         $streamWritersDir ??= sys_get_temp_dir().'/json_streamer/write';
         $transformers += [
             \DateTimeInterface::class => new DateTimeValueObjectTransformer(),
+            \DateInterval::class => new DateIntervalValueObjectTransformer(),
+            \DateTimeZone::class => new DateTimeZoneValueObjectTransformer(),
+            \BcMath\Number::class => new BcMathNumberValueObjectTransformer(),
+            \GMP::class => new GmpNumberValueObjectTransformer(),
         ];
 
         $transformersContainer = new class($transformers) implements ContainerInterface {

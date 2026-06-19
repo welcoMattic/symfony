@@ -44,11 +44,16 @@ class_exists(MissingDotenv::class, false) || class_exists(Dotenv::class) || clas
  *  - "use_putenv" to tell Dotenv to set env vars using putenv() (NOT RECOMMENDED.)
  *  - "dotenv_overload" to tell Dotenv to override existing vars
  *  - "dotenv_extra_paths" to define a list of additional dot-env files
- *  - "worker_loop_max" to define the number of requests after which the worker must restart to prevent memory leaks
+ *  - "worker_loop_max" to define the number of requests after which the worker must restart;
+ *    use 0 or a negative integer to never restart. Falls back to the "FRANKENPHP_LOOP_MAX" env var, defaults to 500.
  *
  * When the "debug" / "env" options are not defined, they will fallback to the
  * "APP_DEBUG" / "APP_ENV" environment variables, and to the "--env|-e" / "--no-debug"
  * command line arguments if "symfony/console" is installed.
+ *
+ * When the application is an HttpKernelInterface or Response and "FRANKENPHP_WORKER" is truthy,
+ * a FrankenPhpWorkerRunner is used. For HttpKernelInterface, "FRANKENPHP_RESET_KERNEL" additionally
+ * clones the kernel after each request.
  *
  * When the "symfony/dotenv" component is installed, .env files are loaded.
  * When "symfony/error-handler" is installed, it is registered in debug mode.
@@ -101,7 +106,9 @@ class SymfonyRuntime extends GenericRuntime
         $envKey = $options['env_var_name'] ??= 'APP_ENV';
         $debugKey = $options['debug_var_name'] ??= 'APP_DEBUG';
 
-        if (isset($_SERVER['argv']) && !empty($_GET)) {
+        if (isset($_SERVER['argv']) && isset($_SERVER['QUERY_STRING'])
+            && !\in_array(\PHP_SAPI, ['cli', 'phpdbg', 'embed'], true)
+        ) {
             // register_argc_argv=On is too risky in web servers
             $_SERVER['argv'] = [];
             $_SERVER['argc'] = 0;
@@ -109,7 +116,9 @@ class SymfonyRuntime extends GenericRuntime
 
         if (isset($options['env'])) {
             $_SERVER[$envKey] = $options['env'];
-        } elseif (empty($_GET) && isset($_SERVER['argv']) && class_exists(ArgvInput::class)) {
+        } elseif (isset($_SERVER['argv']) && class_exists(ArgvInput::class)
+            && (\in_array(\PHP_SAPI, ['cli', 'phpdbg', 'embed'], true) || !isset($_SERVER['QUERY_STRING']))
+        ) {
             $this->options = $options;
             $this->getInput();
         }
@@ -170,7 +179,7 @@ class SymfonyRuntime extends GenericRuntime
     public function getRunner(?object $application): RunnerInterface
     {
         if ($application instanceof HttpKernelInterface) {
-            if ($_SERVER['FRANKENPHP_WORKER'] ?? false) {
+            if (filter_var($_SERVER['FRANKENPHP_WORKER'] ?? false, \FILTER_VALIDATE_BOOL)) {
                 return new FrankenPhpWorkerRunner($application, $this->options['worker_loop_max']);
             }
 
@@ -178,7 +187,7 @@ class SymfonyRuntime extends GenericRuntime
         }
 
         if ($application instanceof Response) {
-            if ($_SERVER['FRANKENPHP_WORKER'] ?? false) {
+            if (filter_var($_SERVER['FRANKENPHP_WORKER'] ?? false, \FILTER_VALIDATE_BOOL)) {
                 return new FrankenPhpWorkerRunner($application, $this->options['worker_loop_max']);
             }
 
@@ -222,9 +231,12 @@ class SymfonyRuntime extends GenericRuntime
 
     protected function getArgument(\ReflectionParameter $parameter, ?string $type): mixed
     {
-        return $this->resolveType($type) ?? parent::getArgument($parameter, $type);
+        return (null !== $type ? $this->resolveType($type) : null) ?? parent::getArgument($parameter, $type);
     }
 
+    /**
+     * Returns an instance for the given $type, or null to delegate to the default resolver.
+     */
     protected function resolveType(string $type): mixed
     {
         return match ($type) {
@@ -258,6 +270,13 @@ class SymfonyRuntime extends GenericRuntime
 
     private function getInput(): ArgvInput
     {
+        if (!\in_array(\PHP_SAPI, ['cli', 'phpdbg', 'embed'], true)
+            && isset($_SERVER['QUERY_STRING'])
+            && filter_var(\ini_get('register_argc_argv'), \FILTER_VALIDATE_BOOL)
+        ) {
+            throw new \Exception('CLI applications cannot be run safely on non-CLI SAPIs with register_argc_argv=On.');
+        }
+
         if (isset($this->input)) {
             return $this->input;
         }

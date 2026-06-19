@@ -104,7 +104,7 @@ class ImportMapRenderer
         }
 
         $scriptAttributes = $attributes || $this->scriptAttributes ? ' '.$this->createAttributesString($attributes) : '';
-        $importMapJson = json_encode(['imports' => $importMap], \JSON_THROW_ON_ERROR | \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_HEX_TAG);
+        $importMapJson = json_encode(['imports' => $importMap ?: new \stdClass()], \JSON_THROW_ON_ERROR | \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_HEX_TAG);
         $output .= <<<HTML
 
             <script type="importmap"$scriptAttributes>
@@ -132,11 +132,18 @@ class ImportMapRenderer
                 ] + $polyfillAttributes;
             }
 
+            // The CSP nonce changes per request and must not be baked into the inlined script
+            // body — otherwise the rendered <head> changes on every render, which breaks Turbo's
+            // <head> signature check and any cache that keys on the response body. Propagate it
+            // at runtime from the parent <script> element instead.
+            unset($polyfillAttributes['nonce']);
+
             $output .= <<<HTML
                 <script$scriptAttributes>
                 if (!HTMLScriptElement.supports || !HTMLScriptElement.supports('importmap')) (function () {
                     const script = document.createElement('script');
                     script.src = '{$this->escapeAttributeValue($polyfillPath, \ENT_NOQUOTES)}';
+                    if (document.currentScript?.nonce) script.nonce = document.currentScript.nonce;
                     {$this->createAttributesString($polyfillAttributes, "script.setAttribute('%s', '%s');", "\n    ", \ENT_NOQUOTES)}
                     document.head.appendChild(script);
                 })();

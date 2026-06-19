@@ -12,6 +12,7 @@
 namespace Symfony\Component\JsonStreamer\Tests;
 
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\Container;
 use Symfony\Component\JsonStreamer\Exception\NotEncodableValueException;
@@ -20,9 +21,13 @@ use Symfony\Component\JsonStreamer\Tests\Fixtures\Enum\DummyBackedEnum;
 use Symfony\Component\JsonStreamer\Tests\Fixtures\Mapping\SyntheticPropertyMetadataLoader;
 use Symfony\Component\JsonStreamer\Tests\Fixtures\Model\ClassicDummy;
 use Symfony\Component\JsonStreamer\Tests\Fixtures\Model\DummyWithArray;
+use Symfony\Component\JsonStreamer\Tests\Fixtures\Model\DummyWithBcMathNumber;
+use Symfony\Component\JsonStreamer\Tests\Fixtures\Model\DummyWithDateIntervals;
 use Symfony\Component\JsonStreamer\Tests\Fixtures\Model\DummyWithDateTimes;
+use Symfony\Component\JsonStreamer\Tests\Fixtures\Model\DummyWithDateTimeZones;
 use Symfony\Component\JsonStreamer\Tests\Fixtures\Model\DummyWithDollarNamedProperties;
 use Symfony\Component\JsonStreamer\Tests\Fixtures\Model\DummyWithGenerics;
+use Symfony\Component\JsonStreamer\Tests\Fixtures\Model\DummyWithGmpNumber;
 use Symfony\Component\JsonStreamer\Tests\Fixtures\Model\DummyWithList;
 use Symfony\Component\JsonStreamer\Tests\Fixtures\Model\DummyWithNameAttributes;
 use Symfony\Component\JsonStreamer\Tests\Fixtures\Model\DummyWithNestedArray;
@@ -44,6 +49,7 @@ use Symfony\Component\JsonStreamer\Tests\Fixtures\Transformer\BooleanToStringVal
 use Symfony\Component\JsonStreamer\Tests\Fixtures\Transformer\DoubleIntAndCastToStringValueTransformer;
 use Symfony\Component\JsonStreamer\Tests\Fixtures\Transformer\HeightValueObjectTransformer;
 use Symfony\Component\JsonStreamer\Tests\Fixtures\ValueObject\Height;
+use Symfony\Component\JsonStreamer\Transformer\DateIntervalValueObjectTransformer;
 use Symfony\Component\JsonStreamer\Transformer\DateTimeValueObjectTransformer;
 use Symfony\Component\JsonStreamer\Transformer\PropertyValueTransformerInterface;
 use Symfony\Component\JsonStreamer\Transformer\ValueObjectTransformerInterface;
@@ -350,6 +356,49 @@ class JsonStreamWriterTest extends TestCase
         );
     }
 
+    public function testWriteObjectWithDateIntervals()
+    {
+        $dummy = new DummyWithDateIntervals();
+        $dummy->interval = new \DateInterval('P2Y6M1DT12H30M5S');
+
+        $this->assertWritten(
+            '{"interval":"P2Y6M1DT12H30M5S"}',
+            $dummy,
+            Type::object(DummyWithDateIntervals::class),
+            options: [DateIntervalValueObjectTransformer::FORMAT_KEY => 'P%yY%mM%dDT%hH%iM%sS'],
+        );
+    }
+
+    public function testWriteObjectWithDateTimeZones()
+    {
+        $dummy = new DummyWithDateTimeZones();
+        $dummy->timezone = new \DateTimeZone('Asia/Tokyo');
+
+        $this->assertWritten(
+            '{"timezone":"Asia\/Tokyo"}',
+            $dummy,
+            Type::object(DummyWithDateTimeZones::class),
+        );
+    }
+
+    #[RequiresPhpExtension('bcmath')]
+    public function testWriteObjectWithBcMathNumber()
+    {
+        $dummy = new DummyWithBcMathNumber();
+        $dummy->number = new \BcMath\Number('3.14');
+
+        $this->assertWritten('{"number":"3.14"}', $dummy, Type::object(DummyWithBcMathNumber::class));
+    }
+
+    #[RequiresPhpExtension('gmp')]
+    public function testWriteObjectWithGmpNumber()
+    {
+        $dummy = new DummyWithGmpNumber();
+        $dummy->gmp = new \GMP('99999999999999999999');
+
+        $this->assertWritten('{"gmp":"99999999999999999999"}', $dummy, Type::object(DummyWithGmpNumber::class));
+    }
+
     public function testWriteObjectWithDollarNamedProperties()
     {
         $this->assertWritten('{"$foo":true,"{$foo->bar}":true}', new DummyWithDollarNamedProperties(), Type::object(DummyWithDollarNamedProperties::class));
@@ -469,7 +518,7 @@ class JsonStreamWriterTest extends TestCase
         $writer = JsonStreamWriter::create(streamWritersDir: $this->streamWritersDir);
 
         $this->expectException(NotEncodableValueException::class);
-        $this->expectExceptionMessage('Inf and NaN cannot be JSON encoded');
+        $this->expectExceptionMessage('Cannot encode "int" to JSON: Inf and NaN cannot be JSON encoded.');
 
         (string) $writer->write(\INF, Type::int());
     }

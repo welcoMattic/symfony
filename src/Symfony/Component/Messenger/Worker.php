@@ -82,18 +82,21 @@ class Worker
      *
      * Valid options are:
      *  * sleep (default: 1000000): Time in microseconds to sleep after no messages are found
+     *  * time_limit: The time limit in seconds the worker can handle new messages
      *  * queues: The queue names to consume from, instead of consuming from all queues. When this is used, all receivers must implement the QueueReceiverInterface
      */
     public function run(array $options = []): void
     {
         $options = array_merge([
             'sleep' => 1000000,
+            'time_limit' => null,
         ], $options);
         $queueNames = $options['queues'] ?? null;
+        $endTime = null !== $options['time_limit'] ? $this->clock->now()->format('U.u') + $options['time_limit'] : null;
 
         $this->metadata->set(['queueNames' => $queueNames]);
 
-        $this->eventDispatcher?->dispatch(new WorkerStartedEvent($this, isset($options['time_limit']) ? $this->clock->now()->format('U.u') + (int) $options['time_limit'] : null, $options['sleep']));
+        $this->eventDispatcher?->dispatch(new WorkerStartedEvent($this, null === $endTime ? null : (float) $endTime, $options['sleep']));
 
         if ($queueNames) {
             // if queue names are specified, all receivers must implement the QueueReceiverInterface
@@ -105,6 +108,11 @@ class Worker
         }
 
         while (!$this->shouldStop) {
+            if (null !== $endTime && $this->clock->now()->format('U.u') >= $endTime) {
+                $this->logger?->info('Worker stopped due to time limit of {timeLimit}s exceeded', ['timeLimit' => $options['time_limit']]);
+                break;
+            }
+
             $envelopeHandled = false;
             $envelopeHandledStart = $this->clock->now();
             $fetchSize = max(1, $options['fetch_size'] ?? 1);
@@ -148,8 +156,18 @@ class Worker
             if (!$this->flush(30.0) && !$envelopeHandled) {
                 $this->eventDispatcher?->dispatch(new WorkerRunningEvent($this, true));
 
+                if ($this->shouldStop) {
+                    continue;
+                }
+
                 if (0 < $sleep = (int) ($options['sleep'] - 1e6 * ($this->clock->now()->format('U.u') - $envelopeHandledStart->format('U.u')))) {
-                    $this->clock->sleep($sleep / 1e6);
+                    if (null !== $endTime) {
+                        $sleep = min($sleep, (int) (1e6 * ($endTime - $this->clock->now()->format('U.u'))));
+                    }
+
+                    if (0 < $sleep) {
+                        $this->clock->sleep($sleep / 1e6);
+                    }
                 }
             }
         }

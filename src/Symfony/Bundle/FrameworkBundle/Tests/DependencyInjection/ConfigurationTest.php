@@ -665,6 +665,89 @@ class ConfigurationTest extends TestCase
         $this->assertSame([['place' => 'c', 'weight' => 1]], $transitions[1]['to']);
     }
 
+    public function testWorkflowEventsToDispatchRejectsMixedAllowListAndBlockList()
+    {
+        $processor = new Processor();
+        $configuration = new Configuration(true);
+
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('Cannot mix allow-list and block-list entries in "events_to_dispatch": every entry must start with "!" (block-list mode) or none of them must (allow-list mode).');
+
+        $processor->processConfiguration($configuration, [[
+            'http_method_override' => false,
+            'handle_all_throwables' => true,
+            'php_errors' => ['log' => true],
+            'workflows' => [
+                'workflows' => [
+                    'mixed' => [
+                        'supports' => [self::class],
+                        'places' => ['a', 'b'],
+                        'initial_marking' => 'a',
+                        'events_to_dispatch' => ['workflow.enter', '!workflow.announce'],
+                        'transitions' => [
+                            ['name' => 'go', 'from' => ['a'], 'to' => ['b']],
+                        ],
+                    ],
+                ],
+            ],
+        ]]);
+    }
+
+    public function testWorkflowEventsToDispatchAcceptsBlockListOnlyList()
+    {
+        $processor = new Processor();
+        $configuration = new Configuration(true);
+
+        $config = $processor->processConfiguration($configuration, [[
+            'http_method_override' => false,
+            'handle_all_throwables' => true,
+            'php_errors' => ['log' => true],
+            'workflows' => [
+                'workflows' => [
+                    'block_list' => [
+                        'supports' => [self::class],
+                        'places' => ['a', 'b'],
+                        'initial_marking' => 'a',
+                        'events_to_dispatch' => ['!workflow.announce'],
+                        'transitions' => [
+                            ['name' => 'go', 'from' => ['a'], 'to' => ['b']],
+                        ],
+                    ],
+                ],
+            ],
+        ]]);
+
+        $this->assertSame(['!workflow.announce'], $config['workflows']['workflows']['block_list']['events_to_dispatch']);
+    }
+
+    public function testWorkflowEventsToDispatchRejectsBlockListedGuardEvent()
+    {
+        $processor = new Processor();
+        $configuration = new Configuration(true);
+
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('The "workflow.guard" event cannot be disabled in "events_to_dispatch": it is always dispatched.');
+
+        $processor->processConfiguration($configuration, [[
+            'http_method_override' => false,
+            'handle_all_throwables' => true,
+            'php_errors' => ['log' => true],
+            'workflows' => [
+                'workflows' => [
+                    'guard_block' => [
+                        'supports' => [self::class],
+                        'places' => ['a', 'b'],
+                        'initial_marking' => 'a',
+                        'events_to_dispatch' => ['!workflow.guard'],
+                        'transitions' => [
+                            ['name' => 'go', 'from' => ['a'], 'to' => ['b']],
+                        ],
+                    ],
+                ],
+            ],
+        ]]);
+    }
+
     public function testFormCsrfProtectionFieldAttrDoNotNormalizeKeys()
     {
         $processor = new Processor();
@@ -738,6 +821,9 @@ class ConfigurationTest extends TestCase
                 'path' => '/_fragment',
                 'hinclude_default_template' => null,
             ],
+            'uri_signer' => [
+                'expiration' => null,
+            ],
             'profiler' => [
                 'enabled' => false,
                 'only_exceptions' => false,
@@ -772,6 +858,7 @@ class ConfigurationTest extends TestCase
                 'static_method' => ['loadValidatorMetadata'],
                 'translation_domain' => 'validators',
                 'disable_translation' => false,
+                'property_metadata_existence_check' => false,
                 'mapping' => [
                     'paths' => [],
                 ],
@@ -971,6 +1058,7 @@ class ConfigurationTest extends TestCase
                 'default_uuid_version' => 7,
                 'name_based_uuid_version' => 5,
                 'time_based_uuid_version' => 7,
+                'uuid47_secret' => null,
             ],
             'html_sanitizer' => [
                 'enabled' => !class_exists(FullStack::class) && class_exists(HtmlSanitizer::class),
@@ -1027,6 +1115,18 @@ class ConfigurationTest extends TestCase
         $processor = new Processor();
         $processor->processConfiguration(new Configuration(true), [[
             'http_cache' => ['terminate_on_cache_hit' => true],
+        ]]);
+    }
+
+    #[Group('legacy')]
+    #[IgnoreDeprecations]
+    public function testIdeDeprecation()
+    {
+        $this->expectUserDeprecationMessage('Since symfony/framework-bundle 8.2: Setting the "framework.ide" configuration option is deprecated, use the "SYMFONY_IDE" env var instead.');
+
+        $processor = new Processor();
+        $processor->processConfiguration(new Configuration(true), [[
+            'ide' => 'phpstorm',
         ]]);
     }
 }

@@ -13,7 +13,10 @@ namespace Symfony\Bridge\Doctrine\Tests\SchemaListener;
 
 use Doctrine\DBAL\Configuration;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Schema\Column;
 use Doctrine\DBAL\Schema\Schema;
+use Doctrine\DBAL\Schema\Sequence;
+use Doctrine\DBAL\Schema\Table;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Tools\Event\GenerateSchemaEventArgs;
 use PHPUnit\Framework\TestCase;
@@ -62,15 +65,12 @@ class MessengerTransportDoctrineSchemaListenerTest extends TestCase
 
         $doctrineTransport = $this->createStub(DoctrineTransport::class);
         $doctrineTransport->method('configureSchema')
-            ->willReturnCallback(static function (Schema $schema) {
-                $table = $schema->createTable('messenger_messages');
-                $table->addColumn('id', 'integer', ['autoincrement' => true]);
-            });
+            ->willReturnCallback(self::addMessengerMessages(...));
 
         $listener = new MessengerTransportDoctrineSchemaListener([$doctrineTransport]);
         $listener->postGenerateSchema($event);
 
-        $this->assertFalse($schema->hasTable('messenger_messages'));
+        $this->assertFalse($event->getSchema()->hasTable('messenger_messages'));
     }
 
     public function testPostGenerateSchemaRespectsSchemaFilterIncludingSequences()
@@ -90,23 +90,23 @@ class MessengerTransportDoctrineSchemaListenerTest extends TestCase
 
         $doctrineTransport = $this->createStub(DoctrineTransport::class);
         $doctrineTransport->method('configureSchema')
-            ->willReturnCallback(static function (Schema $schema) {
-                $table = $schema->createTable('messenger_messages');
-                $table->addColumn('id', 'integer', ['autoincrement' => true]);
-                $schema->createSequence('messenger_messages_seq');
-            });
+            ->willReturnCallback(self::addMessengerMessagesWithSequence(...));
 
         $listener = new MessengerTransportDoctrineSchemaListener([$doctrineTransport]);
         $listener->postGenerateSchema($event);
 
-        $this->assertFalse($schema->hasTable('messenger_messages'));
-        $this->assertFalse($schema->hasSequence('messenger_messages_seq'));
+        $this->assertFalse($event->getSchema()->hasTable('messenger_messages'));
+        $this->assertFalse($event->getSchema()->hasSequence('messenger_messages_seq'));
     }
 
     public function testPostGenerateSchemaFilterDoesNotAffectPreExistingSequences()
     {
-        $schema = new Schema();
-        $schema->createSequence('existing_seq');
+        if (method_exists(Schema::class, 'edit')) {
+            $schema = (new Schema())->edit()->addSequence(new Sequence('existing_seq'))->create();
+        } else {
+            $schema = new Schema();
+            $schema->createSequence('existing_seq');
+        }
 
         $configuration = new Configuration();
         $excluded = ['messenger_messages', 'messenger_messages_seq', 'existing_seq'];
@@ -121,17 +121,44 @@ class MessengerTransportDoctrineSchemaListenerTest extends TestCase
 
         $doctrineTransport = $this->createStub(DoctrineTransport::class);
         $doctrineTransport->method('configureSchema')
-            ->willReturnCallback(static function (Schema $schema) {
-                $table = $schema->createTable('messenger_messages');
-                $table->addColumn('id', 'integer', ['autoincrement' => true]);
-                $schema->createSequence('messenger_messages_seq');
-            });
+            ->willReturnCallback(self::addMessengerMessagesWithSequence(...));
 
         $listener = new MessengerTransportDoctrineSchemaListener([$doctrineTransport]);
         $listener->postGenerateSchema($event);
 
-        $this->assertFalse($schema->hasTable('messenger_messages'));
-        $this->assertFalse($schema->hasSequence('messenger_messages_seq'));
-        $this->assertTrue($schema->hasSequence('existing_seq'));
+        $this->assertFalse($event->getSchema()->hasTable('messenger_messages'));
+        $this->assertFalse($event->getSchema()->hasSequence('messenger_messages_seq'));
+        $this->assertTrue($event->getSchema()->hasSequence('existing_seq'));
+    }
+
+    private static function addMessengerMessages(Schema $schema): Schema
+    {
+        if (method_exists($schema, 'edit')) {
+            return $schema->edit()->addTable(self::buildMessengerMessagesTable())->create();
+        }
+
+        $schema->createTable('messenger_messages')->addColumn('id', 'integer', ['autoincrement' => true]);
+
+        return $schema;
+    }
+
+    private static function addMessengerMessagesWithSequence(Schema $schema): Schema
+    {
+        if (method_exists($schema, 'edit')) {
+            return $schema->edit()->addTable(self::buildMessengerMessagesTable())->addSequence(new Sequence('messenger_messages_seq'))->create();
+        }
+
+        $schema->createTable('messenger_messages')->addColumn('id', 'integer', ['autoincrement' => true]);
+        $schema->createSequence('messenger_messages_seq');
+
+        return $schema;
+    }
+
+    private static function buildMessengerMessagesTable(): Table
+    {
+        return Table::editor()
+            ->setUnquotedName('messenger_messages')
+            ->addColumn(Column::editor()->setUnquotedName('id')->setTypeName('integer')->setAutoincrement(true)->create())
+            ->create();
     }
 }

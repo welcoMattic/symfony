@@ -39,6 +39,7 @@ use Symfony\Component\Validator\ConstraintViolationInterface;
 use Symfony\Component\Validator\Context\ExecutionContextFactory;
 use Symfony\Component\Validator\Context\ExecutionContextInterface;
 use Symfony\Component\Validator\Exception\ConstraintDefinitionException;
+use Symfony\Component\Validator\Exception\InvalidArgumentException;
 use Symfony\Component\Validator\Exception\NoSuchMetadataException;
 use Symfony\Component\Validator\Exception\RuntimeException;
 use Symfony\Component\Validator\Exception\ValidatorException;
@@ -1086,6 +1087,47 @@ class RecursiveValidatorTest extends TestCase
 
         /* @var ConstraintViolationInterface[] $violations */
         $this->assertCount(2, $violations);
+    }
+
+    #[DataProvider('getInvalidGroups')]
+    public function testValidateInvalidGroup($invalidGroup, string $type)
+    {
+        $entity = new Entity();
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage(\sprintf('The validation groups must be an array of strings or "Symfony\Component\Validator\Constraints\GroupSequence" instances, but the array contains "%s".', $type));
+
+        $this->validate($entity, null, ['Group 1', $invalidGroup]);
+    }
+
+    public static function getInvalidGroups()
+    {
+        yield 'null' => [null, 'null'];
+        yield 'int' => [123, 'int'];
+        yield 'object' => [new \stdClass(), 'stdClass'];
+    }
+
+    public function testValidateWithStringableGroup()
+    {
+        $entity = new Entity();
+
+        $this->metadata->addConstraint(new Callback(
+            callback: static function ($value, ExecutionContextInterface $context) {
+                $context->addViolation('Message');
+            },
+            groups: ['Group 1'],
+        ));
+
+        $stringableGroup = new class() implements \Stringable {
+            public function __toString(): string
+            {
+                return 'Group 1';
+            }
+        };
+
+        $violations = $this->validate($entity, null, [$stringableGroup]);
+
+        $this->assertCount(1, $violations);
     }
 
     public function testReplaceDefaultGroupByGroupSequenceObject()
@@ -2350,37 +2392,11 @@ class RecursiveValidatorTest extends TestCase
 
         $this->assertCount(2, $validator->getViolations());
     }
-}
-
-final class TestConstraintHashesDoNotCollide extends Constraint
-{
-}
-
-final class TestConstraintHashesDoNotCollideValidator extends ConstraintValidator
-{
-    public function validate($value, Constraint $constraint): void
-    {
-        if (!$value instanceof Entity) {
-            throw new \LogicException();
-        }
-
-        $this->context->getValidator()
-            ->inContext($this->context)
-            ->atPath('data')
-            ->validate($value, new NotNull())
-            ->validate($value, new NotNull())
-            ->validate($value, new IsFalse());
-
-        $this->context->getValidator()
-            ->inContext($this->context)
-            ->validate($value, null, new GroupSequence(['should_pass']))
-            ->validate($value, null, new GroupSequence(['should_fail']));
-    }
 
     public function testValidatePropertyWithExistenceCheckThrowsOnNonExistentProperty()
     {
         $this->expectException(ValidatorException::class);
-        $this->expectExceptionMessage('The property "nonExistent" has not metadata associated and may not exist.');
+        $this->expectExceptionMessage(\sprintf('The property "nonExistent" does not exist in class "%s".', Entity::class));
 
         $translator = new IdentityTranslator();
         $translator->setLocale('en');
@@ -2417,5 +2433,31 @@ final class TestConstraintHashesDoNotCollideValidator extends ConstraintValidato
         $violations = $this->validator->validateProperty($entity, 'nonExistent');
 
         $this->assertCount(0, $violations);
+    }
+}
+
+final class TestConstraintHashesDoNotCollide extends Constraint
+{
+}
+
+final class TestConstraintHashesDoNotCollideValidator extends ConstraintValidator
+{
+    public function validate($value, Constraint $constraint): void
+    {
+        if (!$value instanceof Entity) {
+            throw new \LogicException();
+        }
+
+        $this->context->getValidator()
+            ->inContext($this->context)
+            ->atPath('data')
+            ->validate($value, new NotNull())
+            ->validate($value, new NotNull())
+            ->validate($value, new IsFalse());
+
+        $this->context->getValidator()
+            ->inContext($this->context)
+            ->validate($value, null, new GroupSequence(['should_pass']))
+            ->validate($value, null, new GroupSequence(['should_fail']));
     }
 }

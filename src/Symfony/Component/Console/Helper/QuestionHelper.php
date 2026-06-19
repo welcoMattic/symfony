@@ -68,6 +68,8 @@ class QuestionHelper extends Helper
         $inputStream = $input instanceof StreamableInputInterface ? $input->getStream() : null;
         $inputStream ??= \STDIN;
 
+        ProgressBar::pauseAll();
+
         try {
             if (!$question->getValidator() && !$question->getConstraints()) {
                 return $this->doAsk($inputStream, $output, $question);
@@ -84,6 +86,8 @@ class QuestionHelper extends Helper
             }
 
             return $fallbackOutput;
+        } finally {
+            ProgressBar::resumeAll();
         }
     }
 
@@ -253,6 +257,8 @@ class QuestionHelper extends Helper
      *
      * @param resource                  $inputStream
      * @param callable(string):string[] $autocomplete
+     *
+     * @param-immediately-invoked-callable $autocomplete
      */
     private function autocomplete(OutputInterface $output, Question $question, $inputStream, callable $autocomplete): string
     {
@@ -415,7 +421,7 @@ class QuestionHelper extends Helper
      */
     private function getHiddenResponse(OutputInterface $output, $inputStream, bool $trimmable = true): string
     {
-        if ('\\' === \DIRECTORY_SEPARATOR) {
+        if ('\\' === \DIRECTORY_SEPARATOR && $this->isInteractiveInput($inputStream)) {
             $exe = __DIR__.'/../Resources/bin/hiddeninput.exe';
 
             // handle code running from a phar
@@ -425,7 +431,7 @@ class QuestionHelper extends Helper
                 $exe = $tmpExe;
             }
 
-            $sExec = shell_exec('"'.$exe.'"');
+            $sExec = (string) shell_exec('"'.$exe.'"');
             $value = $trimmable ? rtrim($sExec) : $sExec;
             $output->writeln('');
 
@@ -467,6 +473,8 @@ class QuestionHelper extends Helper
      * Validates an attempt.
      *
      * @param callable $interviewer A callable that will ask for a question and return the result
+     *
+     * @param-immediately-invoked-callable $interviewer
      *
      * @throws \Exception In case the max number of attempts has been reached and no valid response has been given
      */

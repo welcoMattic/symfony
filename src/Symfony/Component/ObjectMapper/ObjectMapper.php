@@ -31,6 +31,8 @@ use Symfony\Component\VarExporter\LazyObjectInterface;
  */
 final class ObjectMapper implements ObjectMapperInterface, ObjectMapperAwareInterface
 {
+    use ClassHierarchyTrait;
+
     /**
      * Tracks recursive references.
      */
@@ -102,21 +104,23 @@ final class ObjectMapper implements ObjectMapperInterface, ObjectMapperAwareInte
         $objectMap[$source] = $mappedTarget;
         $ctorArguments = [];
         $targetConstructor = $targetRefl->getConstructor();
-        foreach ($targetConstructor?->getParameters() ?? [] as $parameter) {
-            $parameterName = $parameter->getName();
+        if (!$mappingToObject || !$rootCall) {
+            foreach ($targetConstructor?->getParameters() ?? [] as $parameter) {
+                $parameterName = $parameter->getName();
 
-            if ($targetRefl->hasProperty($parameterName)) {
-                $property = $targetRefl->getProperty($parameterName);
+                if ($targetRefl->hasProperty($parameterName)) {
+                    $property = $targetRefl->getProperty($parameterName);
 
-                if ($property->isReadOnly() && $property->isInitialized($mappedTarget)) {
-                    continue;
+                    if ($property->isReadOnly() && $property->isInitialized($mappedTarget)) {
+                        continue;
+                    }
                 }
-            }
 
-            if ($this->isReadable($source, $parameterName)) {
-                $ctorArguments[$parameterName] = $this->getRawValue($source, $parameterName);
-            } else {
-                $ctorArguments[$parameterName] = $parameter->isDefaultValueAvailable() ? $parameter->getDefaultValue() : null;
+                if ($this->isReadable($source, $parameterName)) {
+                    $ctorArguments[$parameterName] = $this->getRawValue($source, $parameterName);
+                } else {
+                    $ctorArguments[$parameterName] = $parameter->isDefaultValueAvailable() ? $parameter->getDefaultValue() : null;
+                }
             }
         }
 
@@ -129,16 +133,18 @@ final class ObjectMapper implements ObjectMapperInterface, ObjectMapperAwareInte
         }
 
         $mapToProperties = [];
-        foreach ($refl->getProperties() as $property) {
+        $targetName = $targetRefl->getName();
+        foreach ($this->getAllProperties($refl) as $property) {
             if ($property->isStatic()) {
                 continue;
             }
 
             $propertyName = $property->getName();
             $mappings = $this->metadataFactory->create($readMetadataFrom, $propertyName);
+            $mappings = array_filter($mappings, static fn (Mapping $m): bool => !$m->targetClass || is_a($targetName, $m->targetClass, true));
             foreach ($mappings as $mapping) {
                 $sourcePropertyName = $propertyName;
-                if ($mapping->source && (!$refl->hasProperty($propertyName) || !isset($source->$propertyName))) {
+                if ($mapping->source && !$this->isReadable($source, $propertyName)) {
                     $sourcePropertyName = $mapping->source;
                 }
 
@@ -149,17 +155,24 @@ final class ObjectMapper implements ObjectMapperInterface, ObjectMapperAwareInte
                     continue;
                 }
 
-                if (
-                    $if
-                    && ($fn = $this->getCallable($if, $this->conditionCallableLocator, ConditionCallableInterface::class))
-                    && $fn instanceof ClassRuleConditionCallableInterface
-                    && !$this->call($fn, null, $source, $mappedTarget)
+                $fn = null;
+                $isClassRule = false;
+                if ($if) {
+                    $fn = $this->getCallable($if, $this->conditionCallableLocator, ConditionCallableInterface::class);
+                    $isClassRule = $fn instanceof ClassRuleConditionCallableInterface;
+                    if ($isClassRule && !$this->call($fn, null, $source, $mappedTarget)) {
+                        continue;
+                    }
+                }
+
+                if (!$this->isReadable($source, $sourcePropertyName)
+                    && $this->getPropertyFromHierarchy(new \ReflectionClass($source), $sourcePropertyName)
                 ) {
                     continue;
                 }
 
                 $value = $this->getRawValue($source, $sourcePropertyName);
-                if ($if && $fn && !$this->call($fn, $value, $source, $mappedTarget)) {
+                if ($fn && !$isClassRule && !$this->call($fn, $value, $source, $mappedTarget)) {
                     unset($ctorArguments[$targetPropertyName]);
 
                     continue;
@@ -178,8 +191,8 @@ final class ObjectMapper implements ObjectMapperInterface, ObjectMapperAwareInte
                     continue;
                 }
 
-                $sourceProperty = $refl->getProperty($propertyName);
-                if ($refl->isInstance($source) && !$sourceProperty->isInitialized($source)) {
+                $sourceProperty = $this->getPropertyFromHierarchy($refl, $propertyName);
+                if ($sourceProperty && $refl->isInstance($source) && !$sourceProperty->isInitialized($source)) {
                     continue;
                 }
 
@@ -188,13 +201,18 @@ final class ObjectMapper implements ObjectMapperInterface, ObjectMapperAwareInte
                 continue;
             }
 
+            if (!$this->isReadable($source, $propertyName, $refl)) {
+                continue;
+            }
+
             $rawValue = $this->getRawValue($source, $propertyName);
             if (
                 \is_object($rawValue)
+                // a self-referencing relation maps to the same target by definition, merging it would overwrite the target with the related object's values
+                && !$rawValue instanceof $source
+                && !$objectMap->offsetExists($rawValue)
                 && ($innerMetadata = $this->metadataFactory->create($rawValue))
-                && ($mapTo = $this->getMapTarget($innerMetadata, $rawValue, $source, $mappedTarget))
-                && \is_string($mapTo->target)
-                && $mapTo->target === $targetRefl->getName()
+                && array_any($innerMetadata, static fn (Mapping $m): bool => \is_string($m->target) && is_a($targetName, $m->target, true))
             ) {
                 ($this->objectMapper ?? $this)->map($rawValue, $mappedTarget);
             }
@@ -210,14 +228,6 @@ final class ObjectMapper implements ObjectMapperInterface, ObjectMapperAwareInte
             }
         }
 
-        if ($mappingToObject && $rootCall && $ctorArguments) {
-            foreach ($ctorArguments as $property => $value) {
-                if ($this->propertyIsMappable($refl, $property) && $this->propertyIsMappable($targetRefl, $property)) {
-                    $mapToProperties[$property] = $value;
-                }
-            }
-        }
-
         foreach ($mapToProperties as $property => $value) {
             if ($this->propertyAccessor) {
                 if ($this->propertyAccessor->isWritable($mappedTarget, $property)) {
@@ -227,7 +237,7 @@ final class ObjectMapper implements ObjectMapperInterface, ObjectMapperAwareInte
                 continue;
             }
 
-            if (!$targetRefl->hasProperty($property)) {
+            if (!$this->propertyIsMappable($targetRefl, $property)) {
                 continue;
             }
 
@@ -237,17 +247,38 @@ final class ObjectMapper implements ObjectMapperInterface, ObjectMapperAwareInte
         return $mappedTarget;
     }
 
-    private function isReadable(object $source, string $propertyName): bool
+    private function isReadable(object $source, string $propertyName, ?\ReflectionClass $refl = null): bool
     {
         if ($this->propertyAccessor) {
             return $this->propertyAccessor->isReadable($source, $propertyName);
         }
 
-        if (!property_exists($source, $propertyName) && !isset($source->{$propertyName})) {
-            return false;
+        if (!property_exists($source, $propertyName)) {
+            // only a private property declared by a parent class is invisible to property_exists();
+            // like any other non-public property, it can only be read through magic __get()
+            if ($this->getPropertyFromHierarchy($refl ??= new \ReflectionClass($source), $propertyName)) {
+                return method_exists($source, '__get');
+            }
+
+            return isset($source->{$propertyName});
         }
 
-        return true;
+        $refl ??= new \ReflectionClass($source);
+
+        if (!$refl->hasProperty($propertyName)) {
+            // ReflectionClass doesn't see dynamic properties: property_exists() matched one, and those are always public
+            return true;
+        }
+
+        $property = $refl->getProperty($propertyName);
+
+        if (!$property->isPublic()) {
+            // a non-public property can only be read through magic __get()
+            return method_exists($source, '__get');
+        }
+
+        // an uninitialized property is not readable, unless unset() re-enabled magic methods on it
+        return $property->isInitialized($source) || isset($source->{$propertyName});
     }
 
     private function getRawValue(object $source, string $propertyName): mixed
@@ -260,7 +291,9 @@ final class ObjectMapper implements ObjectMapperInterface, ObjectMapperAwareInte
             }
         }
 
-        if (!property_exists($source, $propertyName) && !isset($source->{$propertyName})) {
+        if (!property_exists($source, $propertyName) && !isset($source->{$propertyName})
+            && !$this->getPropertyFromHierarchy(new \ReflectionClass($source), $propertyName)
+        ) {
             throw new NoSuchPropertyException(\sprintf('The property "%s" does not exist on "%s".', $propertyName, get_debug_type($source)));
         }
 
@@ -326,6 +359,8 @@ final class ObjectMapper implements ObjectMapperInterface, ObjectMapperAwareInte
     }
 
     /**
+     * @param-immediately-invoked-callable $fn
+     *
      * @param callable(): mixed $fn
      */
     private function call(callable $fn, mixed $value, object $source, ?object $target = null): mixed
@@ -430,7 +465,7 @@ final class ObjectMapper implements ObjectMapperInterface, ObjectMapperAwareInte
             return $refl;
         }
 
-        foreach ($refl->getProperties() as $property) {
+        foreach ($this->getAllProperties($refl) as $property) {
             if ($this->metadataFactory->create($source, $property->getName())) {
                 return $refl;
             }

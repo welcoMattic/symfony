@@ -128,7 +128,14 @@ class CachePoolPass implements CompilerPassInterface
                     }
 
                     if (isset($tags[0]['default_lifetime'])) {
-                        $chainedPool->replaceArgument($i++, $tags[0]['default_lifetime']);
+                        $defaultLifetime = $tags[0]['default_lifetime'];
+
+                        if (!is_numeric($defaultLifetime)) {
+                            $defaultLifetime = (new Definition('int', [$defaultLifetime]))
+                                ->setFactory([ParameterNormalizer::class, 'normalizeDuration']);
+                        }
+
+                        $chainedPool->replaceArgument($i++, $defaultLifetime);
                     }
 
                     if (null !== $marshallerServiceId) {
@@ -184,7 +191,7 @@ class CachePoolPass implements CompilerPassInterface
 
             if (null !== $marshallerServiceId && ChainAdapter::class !== $class) {
                 if (null === $marshallerIndex = $this->findDefaultMarshallerArgumentIndex($adapter)) {
-                    throw new InvalidArgumentException(\sprintf('The "marshaller" attribute of the "cache.pool" tag for service "%s" is not supported by adapter "%s".', $id, $class));
+                    throw new InvalidArgumentException(\sprintf('The "marshaller" attribute of the "cache.pool" tag for service "%s" is not supported by adapter "%s"; its service definition must wire "cache.default_marshaller" as one of its arguments.', $id, $class));
                 }
                 $pool->replaceArgument($marshallerIndex, new Reference($marshallerServiceId));
             }

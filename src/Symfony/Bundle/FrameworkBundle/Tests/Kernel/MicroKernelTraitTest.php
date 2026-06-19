@@ -211,6 +211,31 @@ class MicroKernelTraitTest extends TestCase
         $this->assertSame('OK', $response->getContent());
     }
 
+    public function testRebootDumpsDebugContainerInWarmupDir()
+    {
+        $cacheDir = sys_get_temp_dir().'/'.uniqid('sf_debug_warmup_', true);
+        $warmupDir = $cacheDir.'_warmup';
+        $fs = new Filesystem();
+        $fs->remove([$cacheDir, $warmupDir]);
+
+        $kernel = $this->kernel = new DebugWarmupKernel($cacheDir);
+
+        try {
+            $kernel->boot();
+            $containerClass = $kernel->getContainer()->getParameter('kernel.container_class');
+
+            // Rebooting in a fresh warmup directory must recompile the container there,
+            // so that ContainerBuilderDebugDumpPass (which only runs during compile())
+            // re-dumps the debug container used by tooling (e.g. debug:container, phpstan).
+            $kernel->reboot($warmupDir);
+
+            $this->assertSame(realpath($warmupDir), realpath($kernel->getContainer()->getParameter('kernel.build_dir')));
+            $this->assertFileExists($warmupDir.'/'.$containerClass.'.xml');
+        } finally {
+            $fs->remove($warmupDir);
+        }
+    }
+
     public function testGetKernelParameters()
     {
         $kernel = $this->kernel = new ConcreteMicroKernel('test', false);
@@ -218,8 +243,24 @@ class MicroKernelTraitTest extends TestCase
         $parameters = $kernel->getKernelParameters();
 
         $this->assertSame($kernel->getConfigDir(), $parameters['.kernel.config_dir']);
+        $this->assertSame($kernel->getCharset(), $parameters['kernel.charset']);
         $this->assertSame(['test'], $parameters['.container.known_envs']);
         $this->assertSame(['Symfony\Bundle\FrameworkBundle\FrameworkBundle' => ['all' => true]], $parameters['.kernel.bundles_definition']);
+    }
+
+    public function testGetKernelParametersPopulatesBundleMetadataNamespace()
+    {
+        $kernel = $this->kernel = new ConcreteMicroKernel('test', false);
+
+        $reflectionInitializeBundles = new \ReflectionMethod($kernel, 'initializeBundles');
+        $reflectionInitializeBundles->invoke($kernel);
+
+        $parameters = $kernel->getKernelParameters();
+
+        $this->assertArrayHasKey('kernel.bundles_metadata', $parameters);
+        $this->assertArrayHasKey('FrameworkBundle', $parameters['kernel.bundles_metadata']);
+        $this->assertSame('Symfony\\Bundle\\FrameworkBundle', $parameters['kernel.bundles_metadata']['FrameworkBundle']['namespace']);
+        $this->assertArrayHasKey('path', $parameters['kernel.bundles_metadata']['FrameworkBundle']);
     }
 
     public function testGetKernelParametersWithBundlesFile()
@@ -236,6 +277,8 @@ class MicroKernelTraitTest extends TestCase
 
         $this->assertSame(['test', 'dev'], $parameters['.container.known_envs']);
         $this->assertSame([
+            'Symfony\Component\DependencyInjection\Kernel\ServicesBundle' => ['all' => true],
+            'Symfony\Component\Console\ConsoleBundle' => ['all' => true],
             'Symfony\Bundle\FrameworkBundle\FrameworkBundle' => ['all' => true],
             'TestBundle' => ['test' => true, 'dev' => true],
         ], $parameters['.kernel.bundles_definition']);
@@ -273,6 +316,56 @@ class MicroKernelTraitTest extends TestCase
         $this->assertSame($projectDir.'/var/custom-build/test', $kernel->getBuildDir());
         $this->assertSame($projectDir.'/var/custom-share/test', $kernel->getShareDir());
     }
+
+    public function testOverriddenConfigDirIsUsedToRegisterBundles()
+    {
+        $projectDir = sys_get_temp_dir().'/'.uniqid('sf_custom_config_dir_', true);
+        $configDir = $projectDir.'/config1/config';
+        $fs = new Filesystem();
+        $fs->mkdir($configDir.'/packages');
+        file_put_contents($configDir.'/bundles.php', "<?php\n\nreturn [\n    Symfony\\Bundle\\FrameworkBundle\\FrameworkBundle::class => ['all' => true],\n];\n");
+        file_put_contents($configDir.'/packages/framework.yaml', "framework:\n    secret: \$ecret\n    http_method_override: false\n    test: true\n");
+
+        $kernel = $this->kernel = new CustomConfigDirKernel($projectDir);
+
+        try {
+            $kernel->boot();
+
+            $this->assertSame('$ecret', $kernel->getContainer()->getParameter('kernel.secret'));
+        } finally {
+            $fs->remove($projectDir);
+        }
+    }
+}
+
+class DebugWarmupKernel extends Kernel
+{
+    use MicroKernelTrait;
+
+    public function __construct(private readonly string $cacheDir)
+    {
+        parent::__construct('test', true);
+    }
+
+    public function getCacheDir(): string
+    {
+        return $this->cacheDir;
+    }
+
+    public function getLogDir(): string
+    {
+        return $this->cacheDir;
+    }
+
+    protected function configureContainer(ContainerConfigurator $c): void
+    {
+        $c->extension('framework', ['http_method_override' => false, 'handle_all_throwables' => true]);
+        $c->services()->set('logger', NullLogger::class);
+    }
+
+    protected function configureRoutes(RoutingConfigurator $routes): void
+    {
+    }
 }
 
 class EnvDirKernel extends Kernel
@@ -287,6 +380,36 @@ class EnvDirKernel extends Kernel
     public function getProjectDir(): string
     {
         return $this->projectDir;
+    }
+}
+
+class CustomConfigDirKernel extends Kernel
+{
+    use MicroKernelTrait;
+
+    public function __construct(private readonly string $projectDir)
+    {
+        parent::__construct('test', false);
+    }
+
+    public function getProjectDir(): string
+    {
+        return $this->projectDir;
+    }
+
+    public function getCacheDir(): string
+    {
+        return $this->projectDir.'/var/cache/'.$this->environment;
+    }
+
+    public function getLogDir(): string
+    {
+        return $this->projectDir.'/var/log';
+    }
+
+    public function getConfigDir(): string
+    {
+        return $this->projectDir.'/config1/config';
     }
 }
 

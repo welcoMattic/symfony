@@ -11,13 +11,9 @@
 
 namespace Symfony\Component\VarExporter;
 
+use Symfony\Component\VarExporter\Exception\ClassNotFoundException;
 use Symfony\Component\VarExporter\Exception\LogicException;
 use Symfony\Component\VarExporter\Exception\NotInstantiableTypeException;
-use Symfony\Component\VarExporter\Internal\Exporter;
-use Symfony\Component\VarExporter\Internal\Hydrator as InternalHydrator;
-use Symfony\Component\VarExporter\Internal\NamedClosure;
-use Symfony\Component\VarExporter\Internal\Reference;
-use Symfony\Component\VarExporter\Internal\Registry;
 
 /**
  * Deep-clones PHP values while preserving copy-on-write benefits for strings and arrays.
@@ -25,9 +21,31 @@ use Symfony\Component\VarExporter\Internal\Registry;
  * Unlike unserialize(serialize()), this approach does not reallocate strings and scalar-only
  * arrays, allowing PHP's copy-on-write mechanism to share memory for these values.
  *
- * DeepCloner instances are serializable: the serialized form uses a compact representation
- * that deduplicates class and property names, typically producing a payload smaller than
- * serialize($value) itself.
+ * DeepCloner instances are serializable: the serialized form is a pure array; it contains
+ * only scalars and nested arrays, no objects. This makes it suitable for encoding with
+ * json_encode(), var_export(), or any serializer that handles plain PHP arrays.
+ * The format uses a compact representation that deduplicates class and property names,
+ * typically producing a payload smaller than serialize($value) itself.
+ *
+ * The heavy lifting is delegated to deepclone_to_array() / deepclone_from_array(), which
+ * come from either the native `deepclone` PHP extension (for a 4-5x speedup) or the
+ * `symfony/polyfill-deepclone` package when the extension is not loaded.
+ *
+ * Security:
+ * A DeepCloner instance is itself safe to serialize and unserialize (its serialized form is
+ * a pure array of scalars and nested arrays, no objects), so it can be round-tripped via
+ * unserialize($data, ['allowed_classes' => [DeepCloner::class]]) without instantiating any
+ * other class at unserialize() time. However, the $allowedClasses discipline that applies
+ * to PHP's native unserialize() extends to clone(), cloneAs(), deepClone() and to the cloner
+ * returned by fromArray(): these are what actually instantiate the inner objects (running
+ * __wakeup() / __unserialize() on them). $allowedClasses = null (the default) lets the cloner
+ * instantiate any class loaded in the process, including classes with side effects in
+ * __wakeup() / __unserialize(), which reproduces the full unserialize-gadget surface.
+ * Callers that obtain a DeepCloner (or its array payload) from an untrusted source MUST pass
+ * an explicit allow-list to the clone methods; pass [] to forbid all classes. Allow-list
+ * violations surface as \ValueError (matching PHP's unserialize() contract), not as
+ * {@see Exception\ExceptionInterface}; callers that want to catch every DeepCloner failure
+ * must catch both.
  *
  * @template T
  *
@@ -35,120 +53,47 @@ use Symfony\Component\VarExporter\Internal\Registry;
  */
 final class DeepCloner
 {
-    private readonly mixed $value;
-    private readonly mixed $prepared;
-    private readonly array $objectMeta;
-    private readonly array $properties;
-    private readonly array $resolve;
-    private readonly array $states;
-    private readonly array $refs;
-    private readonly array $originals;
+    private array $payload;
 
     /**
-     * @param T $value
+     * @param T                       $value
+     * @param list<class-string>|null $allowedClasses    Classes that may be instantiated; null (default) allows all; an empty array allows none
+     * @param bool                    $allowNamedClosure Whether to allow cloning of named closures, enable only if you trust the payload
+     *
+     * @throws NotInstantiableTypeException When $value (or a nested value) cannot be serialized
+     * @throws \ValueError                  When a class in the graph is not in $allowedClasses
      */
-    public function __construct(mixed $value)
+    public function __construct(mixed $value, ?array $allowedClasses = null, bool $allowNamedClosure = false)
     {
-        if (!\is_object($value) && !(\is_array($value) && $value) || $value instanceof \UnitEnum) {
-            $this->value = $value;
-
-            return;
-        }
-
-        $objectsPool = new \SplObjectStorage();
-        $refsPool = [];
-        $objectsCount = 0;
-        $isStatic = true;
-        $refs = [];
-
         try {
-            $prepared = Exporter::prepare([$value], $objectsPool, $refsPool, $objectsCount, $isStatic)[0];
-        } finally {
-            foreach ($refsPool as $i => $v) {
-                if ($v[0]->count) {
-                    $refs[1 + $i] = $v[2];
-                }
-                $v[0] = $v[1];
-            }
+            $this->payload = deepclone_to_array($value, $allowedClasses, $allowNamedClosure);
+        } catch (\DeepClone\NotInstantiableException $e) {
+            throw new NotInstantiableTypeException($e);
         }
-
-        if ($isStatic) {
-            $this->value = $value;
-
-            return;
-        }
-
-        $canCloneAll = true;
-        $originals = [];
-        $objectMeta = [];
-        $properties = [];
-        $resolve = [];
-        $states = [];
-
-        foreach ($objectsPool as $v) {
-            [$id, $class, $props, $wakeup] = $objectsPool[$v];
-
-            if (':' !== ($class[1] ?? null)) {
-                // Pre-warm Registry caches so reconstruct() only reads them
-                Registry::$reflectors[$class] ??= Registry::getClassReflector($class);
-            }
-
-            $objectMeta[$id] = [$class, $wakeup];
-
-            if (0 < $wakeup) {
-                $states[$wakeup] = $id;
-                $canCloneAll = false;
-            } elseif (0 > $wakeup) {
-                $states[-$wakeup] = [$id, $props];
-                $props = [];
-                $canCloneAll = false;
-            }
-
-            if ($canCloneAll && (':' === ($class[1] ?? null) || !Registry::$cloneable[$class])) {
-                $canCloneAll = false;
-            }
-
-            if ($canCloneAll) {
-                $originals[$id] = clone $v;
-            }
-
-            foreach ($props as $scope => $scopeProps) {
-                foreach ($scopeProps as $name => $propValue) {
-                    $properties[$scope][$name][$id] = $propValue;
-                    if ($propValue instanceof Reference || $propValue instanceof NamedClosure || \is_array($propValue) && self::hasReference($propValue)) {
-                        $resolve[$scope][$name][] = $id;
-
-                        if ($canCloneAll && ((InternalHydrator::$propertyScopes[$scope] ??= InternalHydrator::getPropertyScopes($scope))[$name][4] ?? null)?->isReadOnly()) {
-                            $canCloneAll = false;
-                        }
-                    }
-                }
-            }
-        }
-
-        ksort($states);
-
-        $this->prepared = $prepared instanceof Reference && $prepared->id >= 0 && !$prepared->count ? $prepared->id : $prepared;
-        $this->objectMeta = $objectMeta;
-        $this->properties = $properties;
-        $this->resolve = $resolve;
-        $this->states = $states;
-        $this->refs = $refs;
-        $this->originals = $canCloneAll ? $originals : [];
     }
 
     /**
      * Deep-clones a PHP value.
      *
+     * When the input may come from an untrusted source, pass an explicit allow-list:
+     * $allowedClasses = null (default) allows every loaded class to be instantiated,
+     * which runs __wakeup() / __unserialize() on them. Pass [] to forbid all classes.
+     *
      * @template U
      *
-     * @param U $value
+     * @param U                       $value
+     * @param list<class-string>|null $allowedClasses    Classes that may be instantiated; null (default) allows all; an empty array allows none
+     * @param bool                    $allowNamedClosure Whether to allow cloning of named closures, enable only if you trust the payload
      *
      * @return U
+     *
+     * @throws ClassNotFoundException       When a class in the graph cannot be loaded
+     * @throws NotInstantiableTypeException When $value (or a nested value) cannot be serialized/instantiated
+     * @throws \ValueError                  When a class in the graph is not in $allowedClasses
      */
-    public static function deepClone(mixed $value): mixed
+    public static function deepClone(mixed $value, ?array $allowedClasses = null, bool $allowNamedClosure = false): mixed
     {
-        return (new self($value))->clone();
+        return (new self($value, $allowedClasses, $allowNamedClosure))->clone($allowedClasses, $allowNamedClosure);
     }
 
     /**
@@ -156,21 +101,40 @@ final class DeepCloner
      */
     public function isStaticValue(): bool
     {
-        return !isset($this->prepared);
+        return \array_key_exists('value', $this->payload);
     }
 
     /**
      * Creates a deep clone of the value.
      *
+     * When this DeepCloner was obtained from an untrusted source (e.g. unserialize() of
+     * attacker-controlled data, or fromArray() on an attacker-controlled payload), the
+     * $allowedClasses argument is the security boundary: $allowedClasses = null (default)
+     * lets any loaded class be instantiated and runs __wakeup() / __unserialize() on it,
+     * reproducing the unserialize-gadget surface. Pass an explicit list (or [] for none).
+     *
+     * @param list<class-string>|null $allowedClasses    Classes that may be instantiated; null (default) allows all; an empty array allows none
+     * @param bool                    $allowNamedClosure Whether to allow cloning of named closures, enable only if you trust the payload
+     *
      * @return T
+     *
+     * @throws ClassNotFoundException       When a class in the graph cannot be loaded
+     * @throws NotInstantiableTypeException When a class in the graph cannot be instantiated
+     * @throws \ValueError                  When a class in the graph is not in $allowedClasses
      */
-    public function clone(): mixed
+    public function clone(?array $allowedClasses = null, bool $allowNamedClosure = false): mixed
     {
-        if (!isset($this->prepared)) {
-            return $this->value;
+        if (\array_key_exists('value', $this->payload)) {
+            return $this->payload['value'];
         }
 
-        return self::reconstruct($this->prepared, $this->objectMeta, $this->properties, $this->resolve, $this->states, $this->refs, $this->originals ?? []);
+        try {
+            return deepclone_from_array($this->payload, $allowedClasses, $allowNamedClosure);
+        } catch (\DeepClone\ClassNotFoundException $e) {
+            throw new ClassNotFoundException($e);
+        } catch (\DeepClone\NotInstantiableException $e) {
+            throw new NotInstantiableTypeException($e);
+        }
     }
 
     /**
@@ -178,309 +142,103 @@ final class DeepCloner
      *
      * The target class must be compatible with the original (typically in the same hierarchy).
      *
+     * When this DeepCloner was obtained from an untrusted source, the $allowedClasses argument
+     * is the security boundary: $allowedClasses = null (default) lets any loaded class be
+     * instantiated and runs __wakeup() / __unserialize() on it. Pass an explicit list (or []
+     * for none). $class itself is not implicitly allow-listed; include it in $allowedClasses
+     * when restricting.
+     *
      * @template U of object
      *
-     * @param class-string<U> $class
+     * @param class-string<U>         $class
+     * @param list<class-string>|null $allowedClasses    Classes that may be instantiated; null (default) allows all; an empty array allows none
+     * @param bool                    $allowNamedClosure Whether to allow cloning of named closures, enable only if you trust the payload
      *
      * @return U
+     *
+     * @throws LogicException               When the cloned value is not an object
+     * @throws ClassNotFoundException       When $class or another class in the graph cannot be loaded
+     * @throws NotInstantiableTypeException When $class or another class in the graph cannot be instantiated
+     * @throws \ValueError                  When a class in the graph is not in $allowedClasses
      */
-    public function cloneAs(string $class): object
+    public function cloneAs(string $class, ?array $allowedClasses = null, bool $allowNamedClosure = false): object
     {
-        $prepared = $this->prepared ?? null;
-        $rootId = \is_int($prepared) ? $prepared : ($prepared instanceof Reference && $prepared->id >= 0 ? $prepared->id : null);
-
-        if (null === $rootId) {
+        if (\array_key_exists('value', $this->payload) || !\is_int($this->payload['prepared'] ?? null) || $this->payload['prepared'] < 0) {
             throw new LogicException('DeepCloner::cloneAs() requires the value to be an object.');
         }
 
-        $objectMeta = $this->objectMeta;
-        $objectMeta[$rootId][0] = $class;
+        $payload = $this->payload;
+        $rootId = $payload['prepared'];
 
-        return self::reconstruct($prepared, $objectMeta, $this->properties, $this->resolve, $this->states, $this->refs);
+        // Add the new class to the dedup'd list and remember its index
+        $classes = $payload['classes'];
+        if (!\is_array($classes)) {
+            $classes = '' !== $classes ? [$classes] : [];
+        }
+        $newCidx = \count($classes);
+        $classes[] = $class;
+        $payload['classes'] = $classes;
+
+        // Expand objectMeta to its array form so we can address the root entry
+        $meta = $payload['objectMeta'];
+        if (\is_int($meta)) {
+            $meta = $meta > 0 ? array_fill(0, $meta, 0) : [];
+        }
+        $entry = $meta[$rootId] ?? null;
+        if (\is_array($entry)) {
+            $meta[$rootId] = [$newCidx, $entry[1]];
+        } else {
+            $meta[$rootId] = $newCidx;
+        }
+        $payload['objectMeta'] = $meta;
+
+        try {
+            return deepclone_from_array($payload, $allowedClasses, $allowNamedClosure);
+        } catch (\DeepClone\ClassNotFoundException $e) {
+            throw new ClassNotFoundException($e);
+        } catch (\DeepClone\NotInstantiableException $e) {
+            throw new NotInstantiableTypeException($e);
+        }
+    }
+
+    /**
+     * Exports the cloner state as a pure array (no objects, only scalars and arrays).
+     *
+     * The returned array can be passed to {@see fromArray()} to restore the cloner.
+     */
+    public function toArray(): array
+    {
+        return $this->payload;
+    }
+
+    /**
+     * Restores a DeepCloner from an array previously created by {@see toArray()}.
+     *
+     * The payload is stored as-is and validated lazily on the first clone() / cloneAs() call.
+     * When $data comes from an untrusted source, the returned cloner must be used with an
+     * explicit $allowedClasses allow-list on clone() / cloneAs(); otherwise any loaded class
+     * referenced in the payload can be instantiated, running its __wakeup() / __unserialize().
+     *
+     * @return self<mixed>
+     */
+    public static function fromArray(array $data): self
+    {
+        $cloner = new self(null);
+        $cloner->__unserialize($data);
+
+        return $cloner;
     }
 
     public function __serialize(): array
     {
-        if (!isset($this->prepared)) {
-            return ['value' => $this->value];
-        }
-
-        // Deduplicate class names in objectMeta
-        $classes = [];
-        $classMap = [];
-        $objectMeta = [];
-        foreach ($this->objectMeta as $id => [$class, $wakeup]) {
-            if (!isset($classMap[$class])) {
-                $classMap[$class] = \count($classes);
-                $classes[] = $class;
-            }
-            $objectMeta[$id] = 0 !== $wakeup ? [$classMap[$class], $wakeup] : $classMap[$class];
-        }
-
-        // When all entries share class index 0 with wakeup 0, store just the count
-        $n = \count($objectMeta);
-        foreach ($objectMeta as $v) {
-            if (0 !== $v) {
-                $n = $objectMeta;
-                break;
-            }
-        }
-
-        // Replace References in prepared with int ids, tracking positions via mask
-        $mask = null;
-        $prepared = self::replaceRefs($this->prepared, $mask);
-
-        $data = [
-            'classes' => 1 === \count($classes) ? $classes[0] : $classes,
-            'objectMeta' => $n,
-            'prepared' => $prepared,
-        ];
-
-        if ($mask) {
-            $data['mask'] = $mask;
-        }
-
-        // Replace direct References in properties with their int id (using resolve map)
-        $properties = $this->properties ?? [];
-        foreach (($this->resolve ?? []) as $scope => $names) {
-            foreach ($names as $name => $ids) {
-                foreach ($ids as $id) {
-                    if ($properties[$scope][$name][$id] instanceof Reference) {
-                        $properties[$scope][$name][$id] = $properties[$scope][$name][$id]->id;
-                    }
-                }
-            }
-        }
-
-        if ($properties) {
-            $data['properties'] = $properties;
-        }
-        if ($this->resolve ?? []) {
-            $data['resolve'] = $this->resolve;
-        }
-        if ($this->states ?? []) {
-            $data['states'] = $this->states;
-        }
-        if ($this->refs ?? []) {
-            $data['refs'] = $this->refs;
-        }
-
-        return $data;
+        return $this->payload;
     }
 
     public function __unserialize(array $data): void
     {
-        if (\array_key_exists('value', $data)) {
-            $this->value = $data['value'];
-
-            return;
-        }
-
-        // Rebuild class names from deduplicated list
-        $classes = $data['classes'];
-        if (!\is_array($classes)) {
-            $classes = [$classes];
-        }
-        $meta = $data['objectMeta'];
-        if (\is_int($meta)) {
-            $objectMeta = array_fill(0, $meta, [$classes[0], 0]);
-        } else {
-            $objectMeta = [];
-            foreach ($meta as $id => $v) {
-                $objectMeta[$id] = \is_array($v) ? [$classes[$v[0]], $v[1]] : [$classes[$v], 0];
-            }
-        }
-
-        $prepared = $data['prepared'];
-        if (isset($data['mask'])) {
-            $prepared = self::restoreRefs($prepared, $data['mask']);
-        }
-        $this->prepared = $prepared;
-        $this->objectMeta = $objectMeta;
-
-        // Restore References in properties using the resolve map
-        $properties = $data['properties'] ?? [];
-        $resolve = $data['resolve'] ?? [];
-        foreach ($resolve as $scope => $names) {
-            foreach ($names as $name => $ids) {
-                foreach ($ids as $id) {
-                    if (\is_int($properties[$scope][$name][$id])) {
-                        $properties[$scope][$name][$id] = new Reference($properties[$scope][$name][$id]);
-                    }
-                }
-            }
-        }
-
-        $this->properties = $properties;
-        $this->resolve = $resolve;
-        $this->states = $data['states'] ?? [];
-        $this->refs = $data['refs'] ?? [];
-    }
-
-    private static function reconstruct($prepared, $objectMeta, $properties, $resolve, $states, $refs, $originals = [])
-    {
-        // Create all object instances
-        $objects = [];
-
-        if ($originals) {
-            // Clone-and-patch: clone originals (COW-shares all scalar properties)
-            foreach ($originals as $id => $v) {
-                $objects[$id] = clone $v;
-            }
-        } else {
-            foreach ($objectMeta as $id => [$class]) {
-                if (':' === ($class[1] ?? null)) {
-                    $objects[$id] = unserialize($class);
-                    continue;
-                }
-                Registry::$reflectors[$class] ??= Registry::getClassReflector($class);
-
-                if (Registry::$cloneable[$class]) {
-                    $objects[$id] = clone Registry::$prototypes[$class];
-                } elseif (Registry::$instantiableWithoutConstructor[$class]) {
-                    $objects[$id] = Registry::$reflectors[$class]->newInstanceWithoutConstructor();
-                } elseif (null === Registry::$prototypes[$class]) {
-                    throw new NotInstantiableTypeException($class);
-                } elseif (Registry::$reflectors[$class]->implementsInterface('Serializable') && !method_exists($class, '__unserialize')) {
-                    $objects[$id] = unserialize('C:'.\strlen($class).':"'.$class.'":0:{}');
-                } else {
-                    $objects[$id] = unserialize('O:'.\strlen($class).':"'.$class.'":0:{}');
-                }
-            }
-        }
-
-        // Resolve hard references
-        foreach ($refs as &$ref) {
-            $ref = self::resolve($ref, $objects, $refs);
-        }
-        unset($ref);
-
-        if ($originals) {
-            // Clone-and-patch: only resolve and hydrate object-reference properties
-            foreach ($resolve as $scope => $names) {
-                $scopeProps = [];
-                foreach ($names as $name => $ids) {
-                    foreach ($ids as $id) {
-                        $scopeProps[$name][$id] = self::resolve($properties[$scope][$name][$id], $objects, $refs);
-                    }
-                }
-                (InternalHydrator::$hydrators[$scope] ??= InternalHydrator::getHydrator($scope))($scopeProps, $objects);
-            }
-        } else {
-            // Full hydration: resolve object refs in-place, then hydrate all properties
-            foreach ($resolve as $scope => $names) {
-                foreach ($names as $name => $ids) {
-                    foreach ($ids as $id) {
-                        $properties[$scope][$name][$id] = self::resolve($properties[$scope][$name][$id], $objects, $refs);
-                    }
-                }
-            }
-            foreach ($properties as $scope => $scopeProps) {
-                (InternalHydrator::$hydrators[$scope] ??= InternalHydrator::getHydrator($scope))($scopeProps, $objects);
-            }
-        }
-
-        foreach ($states as $v) {
-            if (\is_array($v)) {
-                $objects[$v[0]]->__unserialize(self::resolve($v[1], $objects, $refs));
-            } else {
-                $objects[$v]->__wakeup();
-            }
-        }
-
-        if (\is_int($prepared)) {
-            return $objects[$prepared];
-        }
-
-        if ($prepared instanceof Reference) {
-            return $prepared->id >= 0 ? $objects[$prepared->id] : ($prepared->count ? $refs[-$prepared->id] : self::resolve($prepared->value, $objects, $refs));
-        }
-
-        return self::resolve($prepared, $objects, $refs);
-    }
-
-    private static function hasReference($value)
-    {
-        foreach ($value as $v) {
-            if ($v instanceof Reference || $v instanceof NamedClosure || \is_array($v) && self::hasReference($v)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static function resolve($value, $objects, $refs)
-    {
-        if ($value instanceof Reference) {
-            if ($value->id >= 0) {
-                return $objects[$value->id];
-            }
-            if (!$value->count) {
-                return self::resolve($value->value, $objects, $refs);
-            }
-
-            return $refs[-$value->id];
-        }
-
-        if ($value instanceof NamedClosure) {
-            $callable = self::resolve($value->callable, $objects, $refs);
-            if ($value->method?->isPublic() ?? true) {
-                return $callable[0] ? $callable[0]->$callable[1](...) : $callable[1](...);
-            }
-
-            return $value->method->getClosure(\is_object($callable[0]) ? $callable[0] : null);
-        }
-
-        if (\is_array($value)) {
-            foreach ($value as $k => $v) {
-                if ($v instanceof Reference || $v instanceof NamedClosure || \is_array($v)) {
-                    $value[$k] = self::resolve($v, $objects, $refs);
-                }
-            }
-        }
-
-        return $value;
-    }
-
-    private static function replaceRefs($value, &$mask)
-    {
-        if ($value instanceof Reference) {
-            if ($value->id < 0) {
-                return $value; // Hard ref - serialize natively
-            }
-            $mask = true;
-
-            return $value->id;
-        }
-
-        if (\is_array($value)) {
-            foreach ($value as $k => $v) {
-                if ($v instanceof Reference || \is_array($v)) {
-                    $m = null;
-                    $value[$k] = self::replaceRefs($v, $m);
-                    if (null !== $m) {
-                        $mask[$k] = $m;
-                    }
-                }
-            }
-        }
-
-        return $value;
-    }
-
-    private static function restoreRefs($value, $mask)
-    {
-        if (true === $mask) {
-            return new Reference($value);
-        }
-
-        if (\is_array($mask)) {
-            foreach ($mask as $k => $m) {
-                $value[$k] = self::restoreRefs($value[$k], $m);
-            }
-        }
-
-        return $value;
+        // No upfront validation: deepclone_from_array() does it on first clone()
+        // and throws \ValueError on malformed input. This avoids paying for the
+        // validation twice on the happy path.
+        $this->payload = $data;
     }
 }

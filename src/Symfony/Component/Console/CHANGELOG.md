@@ -4,6 +4,8 @@ CHANGELOG
 8.1
 ---
 
+ * Add `ConsoleBundle` for console applications with DI, autodiscovery and autowiring
+ * Pad styled `SymfonyStyle` blocks with the ECH ANSI sequence on decorated outputs so trailing cells are excluded from copy selections
  * Add optional `$container` parameter to `Application` for automatic service wiring from a PSR container
  * Add `SymfonyStyle::outlineBlock()` and convenience methods `outlineSuccess()`, `outlineError()`, `outlineWarning()`, `outlineNote()`, `outlineInfo()`, `outlineCaution()` for border-only message blocks with the type label embedded in the top border
  * Add `TraceableValueResolver` to help inspecting value resolvers performances
@@ -24,6 +26,7 @@ CHANGELOG
  * Deprecate passing both `InputArgument::REQUIRED` and `InputArgument::OPTIONAL` modes to `InputArgument` constructor
  * Deprecate passing more than one out of `InputOption::VALUE_NONE`, `InputOption::VALUE_REQUIRED` and `InputOption::VALUE_OPTIONAL` modes to `InputOption` constructor
  * Add `RawInputInterface` to expose the original arguments and options and to unparse options, implemented by `Input`
+ * Add support for OSC 9;4 for progress reporting
 
 8.0
 ---

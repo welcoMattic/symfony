@@ -613,7 +613,9 @@ class Finder implements \IteratorAggregate, \Countable
     }
 
     /**
-     * Force the use of UNIX paths when recursing directories.
+     * Forces forward slashes as the directory separator in returned paths.
+     *
+     * This is intended for Windows, where the native separator is "\".
      *
      * @return $this
      */
@@ -849,7 +851,7 @@ class Finder implements \IteratorAggregate, \Countable
     /**
      * Normalizes given directory names by removing trailing slashes.
      *
-     * Excluding: (s)ftp:// or ssh2.(s)ftp:// wrapper
+     * Excluding: stream wrapper schemes such as ftp:// or s3://
      */
     private function normalizeDir(string $dir): string
     {
@@ -859,7 +861,7 @@ class Finder implements \IteratorAggregate, \Countable
 
         $dir = rtrim($dir, '/'.\DIRECTORY_SEPARATOR);
 
-        if (preg_match('#^(ssh2\.)?s?ftp://#', $dir)) {
+        if (preg_match('#^[a-zA-Z][a-zA-Z0-9.+-]*://#', $dir)) {
             $dir .= '/';
         }
 
