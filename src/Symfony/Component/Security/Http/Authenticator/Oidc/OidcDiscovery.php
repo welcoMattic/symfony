@@ -1,0 +1,56 @@
+<?php
+
+/*
+ * This file is part of the Symfony package.
+ *
+ * (c) Fabien Potencier <fabien@symfony.com>
+ *
+ * For the full copyright and license information, please view the LICENSE
+ * file that was distributed with this source code.
+ */
+
+namespace Symfony\Component\Security\Http\Authenticator\Oidc;
+
+use Symfony\Contracts\Cache\CacheInterface;
+use Symfony\Contracts\Cache\ItemInterface;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
+
+/**
+ * Fetches and caches the OpenID Connect discovery configuration.
+ *
+ * @see https://openid.net/specs/openid-connect-discovery-1_0.html
+ *
+ * @author Mathieu Santostefano <msantostefano@proton.me>
+ */
+class OidcDiscovery
+{
+    public function __construct(
+        private readonly HttpClientInterface $httpClient,
+        private readonly CacheInterface $cache,
+        private readonly string $openIdConfigurationUrl,
+        private readonly string $issuer,
+        private readonly int $cacheTtl = 3600,
+    ) {
+    }
+
+    /**
+     * @return array<string, mixed> The raw discovery document
+     */
+    public function getConfiguration(): array
+    {
+        return $this->cache->get('oidc_discovery.'.hash('xxh128', $this->openIdConfigurationUrl), function (ItemInterface $item): array {
+            $item->expiresAfter($this->cacheTtl);
+
+            $configuration = $this->httpClient->request('GET', $this->openIdConfigurationUrl)->toArray();
+
+            // OpenID Connect Discovery 1.0, Section 4.3: the "issuer" returned MUST be
+            // identical to the issuer used to build the discovery URL. Validating it
+            // prevents a tampered discovery document from redefining the expected issuer.
+            if (($configuration['issuer'] ?? null) !== $this->issuer) {
+                throw new \RuntimeException(\sprintf('The OIDC provider announced the issuer "%s", which does not match the configured issuer "%s".', $configuration['issuer'] ?? '', $this->issuer));
+            }
+
+            return $configuration;
+        });
+    }
+}

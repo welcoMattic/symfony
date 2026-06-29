@@ -5,6 +5,8 @@ CHANGELOG
 ---
 
  * Add `allowed_time_drift` option to `OidcTokenHandler` to configure time tolerance for token validation (`iat`, `nbf`, `exp` claims)
+ * Add `OidcLoginAuthenticator` for the OpenID Connect Authorization Code Flow (interactive login via OIDC provider)
+ * Add `OidcClient` and `OidcDiscovery` protocol classes
 
 8.1
 ---
