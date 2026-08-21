@@ -93,6 +93,13 @@ class OidcLoginFactory extends AbstractFactory
                 ->min(0)
                 ->info('Allowed clock skew in seconds when validating ID token time claims.')
             ->end()
+            ->arrayNode('pkce')
+                ->addDefaultsIfNotSet()
+                ->children()
+                    ->booleanNode('enabled')->defaultTrue()->info('Enable PKCE (Proof Key for Code Exchange).')->end()
+                    ->scalarNode('method')->defaultValue('S256')->info('PKCE code challenge method. Must match a service tagged "security.oidc.pkce_method" (builtin: "S256", "plain").')->end()
+                ->end()
+            ->end()
         ;
     }
 
@@ -150,6 +157,8 @@ class OidcLoginFactory extends AbstractFactory
         $options = array_intersect_key($config, $this->options);
         $options['firewall_name'] = $firewallName;
         $options['scope'] = $config['scope'];
+        $options['pkce_enabled'] = $config['pkce']['enabled'];
+        $options['pkce_method'] = $config['pkce']['method'];
 
         $container
             ->setDefinition($authenticatorId, new ChildDefinition('security.authenticator.oidc_login'))
@@ -160,7 +169,7 @@ class OidcLoginFactory extends AbstractFactory
             ->replaceArgument(5, $config['client_id'])
             ->replaceArgument(6, new Reference($this->createAuthenticationSuccessHandler($container, $firewallName, $config)))
             ->replaceArgument(7, new Reference($this->createAuthenticationFailureHandler($container, $firewallName, $config)))
-            ->replaceArgument(8, $options)
+            ->replaceArgument(9, $options)
         ;
 
         $callbackUris = $container->hasParameter('security.oidc_login.callback_uris') ? (array) $container->getParameter('security.oidc_login.callback_uris') : [];

@@ -16,6 +16,7 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\SecurityBundle\DependencyInjection\Security\Factory\OidcLoginFactory;
 use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
+use Symfony\Component\DependencyInjection\Argument\ServiceLocatorArgument;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Reference;
 
@@ -104,8 +105,29 @@ class OidcLoginFactoryTest extends TestCase
         $factory = new OidcLoginFactory();
         $factory->createAuthenticator($container, 'main', $this->processConfig($config, $factory), 'userprovider');
 
-        $options = $container->getDefinition('security.authenticator.oidc_login.main')->getArgument(8);
+        $options = $container->getDefinition('security.authenticator.oidc_login.main')->getArgument(9);
         $this->assertSame(['openid profile email'], $options['scope']);
+    }
+
+    public function testPkceMethodsAreIndexedByName()
+    {
+        $container = new ContainerBuilder();
+
+        $config = [
+            'provider_uri' => 'https://provider.example.com',
+            'client_id' => 'my-client-id',
+            'client_secret' => 'my-client-secret',
+            'check_path' => '/oidc/callback',
+        ];
+
+        $factory = new OidcLoginFactory();
+        $factory->createAuthenticator($container, 'main', $this->processConfig($config, $factory), 'userprovider');
+
+        $locator = $container->getDefinition('security.authenticator.oidc_login')->getArgument(8);
+
+        // the locator must be keyed by the tag "index" attribute (e.g. "S256"), not by service id
+        $this->assertInstanceOf(ServiceLocatorArgument::class, $locator);
+        $this->assertSame('index', $locator->getTaggedIteratorArgument()->getIndexAttribute());
     }
 
     public function testGetKey()
@@ -120,6 +142,20 @@ class OidcLoginFactoryTest extends TestCase
         $factory = new OidcLoginFactory();
 
         $this->assertSame(-25, $factory->getPriority());
+    }
+
+    public function testPkceDefaults()
+    {
+        $factory = new OidcLoginFactory();
+        $finalizedConfig = $this->processConfig([
+            'provider_uri' => 'https://provider.example.com',
+            'client_id' => 'my-client-id',
+            'client_secret' => 'my-client-secret',
+            'check_path' => '/oidc/callback',
+        ], $factory);
+
+        $this->assertTrue($finalizedConfig['pkce']['enabled']);
+        $this->assertSame('S256', $finalizedConfig['pkce']['method']);
     }
 
     public function testRequiredOptions()

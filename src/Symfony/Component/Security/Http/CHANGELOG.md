@@ -19,6 +19,7 @@ CHANGELOG
  * Add `OidcLoginAuthenticator` for the OpenID Connect Authorization Code Flow (interactive login via OIDC provider)
  * Add `OidcClient` and `OidcDiscovery` protocol classes
  * Cache the discovery document of the `oidc` access token handler for one hour, where it was fetched again on every refresh of the JWKS
+ * Add pluggable PKCE methods for the OIDC login authenticator (`PkceMethodInterface`, `S256PkceMethod`, `PlainPkceMethod`)
 
 8.1
 ---

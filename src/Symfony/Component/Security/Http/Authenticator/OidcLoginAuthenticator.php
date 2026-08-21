@@ -22,6 +22,7 @@ use Symfony\Component\Security\Http\Authentication\AuthenticationFailureHandlerI
 use Symfony\Component\Security\Http\Authentication\AuthenticationSuccessHandlerInterface;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcClient;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcIdToken;
+use Symfony\Component\Security\Http\Authenticator\Oidc\PkceMethod\PkceMethodInterface;
 use Symfony\Component\Security\Http\Authenticator\Passport\Badge\UserBadge;
 use Symfony\Component\Security\Http\Authenticator\Passport\Passport;
 use Symfony\Component\Security\Http\Authenticator\Passport\SelfValidatingPassport;
@@ -29,6 +30,7 @@ use Symfony\Component\Security\Http\Authenticator\Token\PostAuthenticationToken;
 use Symfony\Component\Security\Http\EntryPoint\AuthenticationEntryPointInterface;
 use Symfony\Component\Security\Http\HttpUtils;
 use Symfony\Component\Security\Http\Oidc\OidcDiscovery;
+use Symfony\Contracts\Service\ServiceProviderInterface;
 
 /**
  * Authenticator for the OpenID Connect Authorization Code Flow.
@@ -43,6 +45,9 @@ final class OidcLoginAuthenticator extends AbstractAuthenticator implements Auth
 
     private array $options;
 
+    /**
+     * @param ServiceProviderInterface<PkceMethodInterface> $pkceMethods A locator of PKCE methods keyed by method name
+     */
     public function __construct(
         private readonly HttpUtils $httpUtils,
         private readonly UserProviderInterface $userProvider,
@@ -52,12 +57,15 @@ final class OidcLoginAuthenticator extends AbstractAuthenticator implements Auth
         private readonly string $clientId,
         private readonly AuthenticationSuccessHandlerInterface $successHandler,
         private readonly AuthenticationFailureHandlerInterface $failureHandler,
+        private readonly ServiceProviderInterface $pkceMethods,
         array $options,
     ) {
         $this->options = array_merge([
             'check_path' => '/oidc/callback',
             'firewall_name' => 'main',
             'scope' => ['openid'],
+            'pkce_enabled' => true,
+            'pkce_method' => 'S256',
         ], $options);
     }
 
@@ -82,7 +90,30 @@ final class OidcLoginAuthenticator extends AbstractAuthenticator implements Auth
 
         $state = bin2hex(random_bytes(32));
         $nonce = bin2hex(random_bytes(32));
-        $codeVerifier = $this->generateCodeVerifier();
+
+        $params = [
+            'response_type' => 'code',
+            'client_id' => $this->clientId,
+            'redirect_uri' => $redirectUri,
+            'scope' => implode(' ', $this->getScopes()),
+            'state' => $state,
+            'nonce' => $nonce,
+        ];
+
+        // resolved before the attempt is stored too, so that a misconfigured PKCE method
+        // does not leave one behind either
+        $codeVerifier = null;
+        if ($this->options['pkce_enabled']) {
+            $method = $this->options['pkce_method'];
+            if (!$this->pkceMethods->has($method)) {
+                throw new \LogicException(\sprintf('Unknown PKCE method "%s". Register a service implementing "%s" with tag "security.oidc.pkce_method" and matching name.', $method, PkceMethodInterface::class));
+            }
+
+            $codeVerifier = $this->generateCodeVerifier();
+
+            $params['code_challenge'] = $this->pkceMethods->get($method)->createChallenge($codeVerifier);
+            $params['code_challenge_method'] = $method;
+        }
 
         // each pending attempt lives under its own session key, carrying the state, so
         // that concurrent logins started from several tabs write distinct entries instead
@@ -99,17 +130,6 @@ final class OidcLoginAuthenticator extends AbstractAuthenticator implements Auth
             'code_verifier' => $codeVerifier,
             'redirect_uri' => $redirectUri,
         ]);
-
-        $params = [
-            'response_type' => 'code',
-            'client_id' => $this->clientId,
-            'redirect_uri' => $redirectUri,
-            'scope' => implode(' ', $this->getScopes()),
-            'state' => $state,
-            'nonce' => $nonce,
-            'code_challenge' => rtrim(strtr(base64_encode(hash('sha256', $codeVerifier, true)), '+/', '-_'), '='),
-            'code_challenge_method' => 'S256',
-        ];
 
         $authorizationUrl = $authorizationEndpoint
             .(str_contains($authorizationEndpoint, '?') ? '&' : '?')
@@ -171,8 +191,9 @@ final class OidcLoginAuthenticator extends AbstractAuthenticator implements Auth
             throw new AuthenticationException('Missing OIDC nonce in session.');
         }
 
-        // same for the PKCE verifier: exchanging the code without it would downgrade PKCE
-        if (!\is_string($codeVerifier) || '' === $codeVerifier) {
+        // same for the PKCE verifier when PKCE is enabled: exchanging the code
+        // without it would downgrade PKCE
+        if ($this->options['pkce_enabled'] && (!\is_string($codeVerifier) || '' === $codeVerifier)) {
             throw new AuthenticationException('Missing PKCE code verifier in session.');
         }
 
@@ -263,7 +284,7 @@ final class OidcLoginAuthenticator extends AbstractAuthenticator implements Auth
      *
      * @return array<string, mixed>
      */
-    private function exchangeAuthorizationCode(string $redirectUri, string $code, string $codeVerifier): array
+    private function exchangeAuthorizationCode(string $redirectUri, string $code, ?string $codeVerifier): array
     {
         $tokenData = $this->oidcClient->exchangeCode($code, $redirectUri, $codeVerifier);
 
@@ -323,7 +344,7 @@ final class OidcLoginAuthenticator extends AbstractAuthenticator implements Auth
     private function generateCodeVerifier(): string
     {
         // A 32-byte (256-bit) verifier, hex-encoded to 64 characters, as recommended
-        // by RFC 7636 Appendix B. The S256 challenge below is the only base64url step.
+        // by RFC 7636 Appendix B; the challenge derivation is left to each PKCE method.
         return bin2hex(random_bytes(32));
     }
 

@@ -14,11 +14,19 @@ namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 use Symfony\Bundle\SecurityBundle\Routing\OidcLoginRouteLoader;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcConfidentialClient;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcIdToken;
+use Symfony\Component\Security\Http\Authenticator\Oidc\PkceMethod\PlainPkceMethod;
+use Symfony\Component\Security\Http\Authenticator\Oidc\PkceMethod\S256PkceMethod;
 use Symfony\Component\Security\Http\Authenticator\OidcLoginAuthenticator;
 use Symfony\Component\Security\Http\Oidc\OidcDiscovery;
 
 return static function (ContainerConfigurator $container) {
     $container->services()
+        ->set('security.authenticator.oidc_login.pkce_method.s256', S256PkceMethod::class)
+            ->tag('security.oidc.pkce_method', ['index' => 'S256'])
+
+        ->set('security.authenticator.oidc_login.pkce_method.plain', PlainPkceMethod::class)
+            ->tag('security.oidc.pkce_method', ['index' => 'plain'])
+
         ->set('security.authenticator.oidc_login', OidcLoginAuthenticator::class)
             ->abstract()
             ->args([
@@ -30,6 +38,7 @@ return static function (ContainerConfigurator $container) {
                 abstract_arg('client ID'),
                 abstract_arg('authentication success handler'),
                 abstract_arg('authentication failure handler'),
+                tagged_locator('security.oidc.pkce_method', 'index'),
                 abstract_arg('options'),
             ])
 

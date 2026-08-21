@@ -34,12 +34,16 @@ use Symfony\Component\Security\Http\Authentication\AuthenticationFailureHandlerI
 use Symfony\Component\Security\Http\Authentication\AuthenticationSuccessHandlerInterface;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcClient;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcIdToken;
+use Symfony\Component\Security\Http\Authenticator\Oidc\PkceMethod\PlainPkceMethod;
+use Symfony\Component\Security\Http\Authenticator\Oidc\PkceMethod\S256PkceMethod;
 use Symfony\Component\Security\Http\Authenticator\OidcLoginAuthenticator;
 use Symfony\Component\Security\Http\Authenticator\Passport\Badge\RememberMeBadge;
 use Symfony\Component\Security\Http\Authenticator\Passport\Badge\UserBadge;
 use Symfony\Component\Security\Http\Authenticator\Passport\SelfValidatingPassport;
 use Symfony\Component\Security\Http\HttpUtils;
 use Symfony\Component\Security\Http\Oidc\OidcDiscovery;
+use Symfony\Contracts\Service\ServiceLocatorTrait;
+use Symfony\Contracts\Service\ServiceProviderInterface;
 
 #[AllowMockObjectsWithoutExpectations]
 class OidcLoginAuthenticatorTest extends TestCase
@@ -588,6 +592,46 @@ class OidcLoginAuthenticatorTest extends TestCase
         $this->assertSame($params['redirect_uri'], $attempt['redirect_uri']);
     }
 
+    public function testStartWithoutPkce()
+    {
+        $authenticator = $this->createAuthenticator(['pkce_enabled' => false]);
+        $request = Request::create('/protected');
+        $request->setSession(new Session(new MockArraySessionStorage()));
+
+        $location = $authenticator->start($request)->getTargetUrl();
+        $params = [];
+        parse_str(parse_url($location, \PHP_URL_QUERY), $params);
+
+        $this->assertArrayNotHasKey('code_challenge', $params);
+        $this->assertArrayNotHasKey('code_challenge_method', $params);
+    }
+
+    public function testStartWithPlainPkce()
+    {
+        $authenticator = $this->createAuthenticator(['pkce_method' => 'plain']);
+        $request = Request::create('/protected');
+        $request->setSession(new Session(new MockArraySessionStorage()));
+
+        $location = $authenticator->start($request)->getTargetUrl();
+        $params = [];
+        parse_str(parse_url($location, \PHP_URL_QUERY), $params);
+
+        $this->assertSame('plain', $params['code_challenge_method']);
+        $this->assertNotEmpty($params['code_challenge']);
+    }
+
+    public function testStartWithUnknownPkceMethodThrows()
+    {
+        $authenticator = $this->createAuthenticator(['pkce_method' => 'unknown']);
+        $request = Request::create('/protected');
+        $request->setSession(new Session(new MockArraySessionStorage()));
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('Unknown PKCE method "unknown"');
+
+        $authenticator->start($request);
+    }
+
     public function testAuthenticatePassesCodeVerifierToExchangeCode()
     {
         $nonce = bin2hex(random_bytes(16));
@@ -1012,6 +1056,10 @@ class OidcLoginAuthenticatorTest extends TestCase
 
     private function createAuthenticator(array $options = [], ?UserProviderInterface $userProvider = null): OidcLoginAuthenticator
     {
+        $pkceMethods = new class(['S256' => static fn () => new S256PkceMethod(), 'plain' => static fn () => new PlainPkceMethod()]) implements ServiceProviderInterface {
+            use ServiceLocatorTrait;
+        };
+
         return new OidcLoginAuthenticator(
             new HttpUtils(),
             $userProvider ?? new OidcUserProvider(),
@@ -1021,6 +1069,7 @@ class OidcLoginAuthenticatorTest extends TestCase
             'test-client-id',
             $this->successHandler,
             $this->failureHandler,
+            $pkceMethods,
             $options,
         );
     }

@@ -62,6 +62,7 @@ use Symfony\Component\Security\Core\User\UserCheckerInterface;
 use Symfony\Component\Security\Core\User\UserProviderInterface;
 use Symfony\Component\Security\Http\Authenticator\Debug\TraceableAuthenticator;
 use Symfony\Component\Security\Http\Authenticator\Debug\TraceableAuthenticatorManagerListener;
+use Symfony\Component\Security\Http\Authenticator\Oidc\PkceMethod\PkceMethodInterface;
 use Symfony\Component\Security\Http\Event\CheckPassportEvent;
 
 /**
@@ -194,6 +195,9 @@ class SecurityExtension extends Extension implements PrependExtensionInterface
 
         $container->registerForAutoconfiguration(VoterInterface::class)
             ->addTag('security.voter');
+
+        $container->registerForAutoconfiguration(PkceMethodInterface::class)
+            ->addTag('security.oidc.pkce_method');
     }
 
     private function createStrategyDefinition(string $strategy, bool $allowIfAllAbstainDecisions, bool $allowIfEqualGrantedDeniedDecisions): Definition
