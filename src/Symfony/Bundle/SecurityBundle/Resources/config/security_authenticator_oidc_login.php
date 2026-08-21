@@ -17,6 +17,7 @@ use Symfony\Component\Security\Http\Authenticator\Oidc\OidcIdToken;
 use Symfony\Component\Security\Http\Authenticator\Oidc\PkceMethod\PlainPkceMethod;
 use Symfony\Component\Security\Http\Authenticator\Oidc\PkceMethod\S256PkceMethod;
 use Symfony\Component\Security\Http\Authenticator\OidcLoginAuthenticator;
+use Symfony\Component\Security\Http\EventListener\OidcEndSessionListener;
 use Symfony\Component\Security\Http\Oidc\OidcDiscovery;
 
 return static function (ContainerConfigurator $container) {
@@ -81,5 +82,14 @@ return static function (ContainerConfigurator $container) {
                 'security.oidc_login.callback_uris',
             ])
             ->tag('routing.route_loader')
+
+        ->set('security.authenticator.oidc_login.end_session_listener', OidcEndSessionListener::class)
+            ->abstract()
+            ->args([
+                abstract_arg('OIDC discovery'),
+                service('security.http_utils'),
+                abstract_arg('post-logout redirect path'),
+                service('logger')->nullOnInvalid(),
+            ])
     ;
 };
