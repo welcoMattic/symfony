@@ -17,8 +17,8 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 /**
  * OIDC client for confidential clients (holding a client secret).
  *
- * Authenticates at the token endpoint using `client_secret_post` (secret in the
- * request body), per RFC 6749 §2.3.1.
+ * Authenticates at the token endpoint using either `client_secret_post` (secret
+ * in the request body) or `client_secret_basic` (HTTP Basic Auth), per RFC 6749 §2.3.1.
  *
  * @author Mathieu Santostefano <msantostefano@proton.me>
  */
@@ -29,12 +29,20 @@ class OidcConfidentialClient extends OidcClient
         OidcDiscovery $discovery,
         string $clientId,
         #[\SensitiveParameter] private readonly string $clientSecret,
+        private readonly string $tokenEndpointAuthMethod = 'client_secret_post',
     ) {
         parent::__construct($httpClient, $discovery, $clientId);
     }
 
     protected function applyClientAuthentication(array $body, array $options): array
     {
+        if ('client_secret_basic' === $this->tokenEndpointAuthMethod) {
+            $options['auth_basic'] = [$this->clientId, $this->clientSecret];
+            $options['body'] = $body;
+
+            return $options;
+        }
+
         $body['client_secret'] = $this->clientSecret;
         $options['body'] = $body;
 

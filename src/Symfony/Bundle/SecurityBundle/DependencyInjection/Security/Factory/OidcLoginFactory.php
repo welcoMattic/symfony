@@ -98,6 +98,11 @@ class OidcLoginFactory extends AbstractFactory
                 ->min(0)
                 ->info('Allowed clock skew in seconds when validating ID token time claims.')
             ->end()
+            ->enumNode('token_endpoint_auth_method')
+                ->values(['client_secret_post', 'client_secret_basic'])
+                ->defaultValue('client_secret_post')
+                ->info('Authentication method for the token endpoint.')
+            ->end()
             ->arrayNode('pkce')
                 ->addDefaultsIfNotSet()
                 ->children()
@@ -175,6 +180,7 @@ class OidcLoginFactory extends AbstractFactory
             ->replaceArgument(1, new Reference($discoveryId))
             ->replaceArgument(2, $config['client_id'])
             ->replaceArgument(3, $config['client_secret'])
+            ->replaceArgument(4, $config['token_endpoint_auth_method'] ?? 'client_secret_post')
         ;
 
         $authenticatorId = 'security.authenticator.oidc_login.'.$firewallName;

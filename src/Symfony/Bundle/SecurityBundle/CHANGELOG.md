@@ -20,6 +20,7 @@ CHANGELOG
  * Add `pkce` configuration (enable/disable, method) to the `oidc_login` authenticator
  * Add `prompt`, `max_age` and `authorization_params` options to the `oidc_login` authenticator
  * Add `user_data_source` and `user_identifier_claim` options to the `oidc_login` authenticator
+ * Add `token_endpoint_auth_method` option (`client_secret_post`, `client_secret_basic`) to the `oidc_login` authenticator
 
 8.1
 ---

@@ -82,6 +82,28 @@ class OidcConfidentialClientTest extends TestCase
         $this->assertSame('id-token-abc', $tokens['id_token']);
     }
 
+    public function testExchangeCodeWithClientSecretBasic()
+    {
+        $response = $this->createMock(ResponseInterface::class);
+        $response->method('toArray')->willReturn([
+            'access_token' => 'access-123',
+            'id_token' => 'id-token-abc',
+        ]);
+
+        $this->httpClient->expects($this->once())
+            ->method('request')
+            ->with('POST', 'https://provider.example.com/token', $this->callback(function (array $options) {
+                $this->assertSame(['test-client-id', 'test-client-secret'], $options['auth_basic']);
+                $this->assertArrayNotHasKey('client_secret', $options['body']);
+
+                return true;
+            }))
+            ->willReturn($response);
+
+        $client = $this->createClient(tokenEndpointAuthMethod: 'client_secret_basic');
+        $client->exchangeCode('auth-code', 'https://app.example.com/callback');
+    }
+
     public function testExchangeCodeWithCodeVerifier()
     {
         $response = $this->createMock(ResponseInterface::class);
@@ -209,13 +231,14 @@ class OidcConfidentialClientTest extends TestCase
         $this->createClient()->fetchUserInfo('access-token');
     }
 
-    private function createClient(): OidcConfidentialClient
+    private function createClient(string $tokenEndpointAuthMethod = 'client_secret_post'): OidcConfidentialClient
     {
         return new OidcConfidentialClient(
             httpClient: $this->httpClient,
             discovery: $this->discovery,
             clientId: 'test-client-id',
             clientSecret: 'test-client-secret',
+            tokenEndpointAuthMethod: $tokenEndpointAuthMethod,
         );
     }
 }

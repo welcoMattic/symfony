@@ -72,6 +72,7 @@ return static function (ContainerConfigurator $container) {
                 abstract_arg('OIDC discovery'),
                 abstract_arg('client ID'),
                 abstract_arg('client secret'),
+                abstract_arg('token endpoint auth method'),
             ])
 
         ->set('security.authenticator.oidc_login.route_loader', OidcLoginRouteLoader::class)
