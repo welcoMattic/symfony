@@ -36,6 +36,7 @@ class OidcLoginFactory extends AbstractFactory
 
     public function __construct()
     {
+        $this->addOption('direct_redirect', false);
         $this->addOption('user_identifier_claim', 'sub');
     }
 
@@ -98,11 +99,16 @@ class OidcLoginFactory extends AbstractFactory
                 ->min(0)
                 ->info('Allowed clock skew in seconds when validating ID token time claims.')
             ->end()
+            ->booleanNode('direct_redirect')
+                ->defaultFalse()
+                ->info('When true (typical for a "Log in with..." button), the entry point redirects straight to the OIDC provider to start the flow. When false, it redirects to the firewall login_path instead.')
+            ->end()
             ->enumNode('token_endpoint_auth_method')
                 ->values(['client_secret_post', 'client_secret_basic'])
                 ->defaultValue('client_secret_post')
                 ->info('Authentication method for the token endpoint.')
             ->end()
+
             ->arrayNode('pkce')
                 ->addDefaultsIfNotSet()
                 ->children()
@@ -118,12 +124,6 @@ class OidcLoginFactory extends AbstractFactory
                 ->min(0)
                 ->info('Max seconds since last end-user authentication. Triggers re-authentication when exceeded.')
             ->end()
-            ->arrayNode('authorization_params')
-                ->useAttributeAsKey('name')
-                ->scalarPrototype()->end()
-                ->defaultValue([])
-                ->info('Additional parameters to include in the authorization request (e.g. prompt, max_age, display, ui_locales, acr_values, login_hint).')
-            ->end()
             ->enumNode('user_data_source')
                 ->values(['userinfo', 'id_token'])
                 ->defaultValue('userinfo')
@@ -136,6 +136,12 @@ class OidcLoginFactory extends AbstractFactory
             ->scalarNode('post_logout_redirect_path')
                 ->defaultValue('/')
                 ->info('Path or route to redirect to after OIDC logout.')
+            ->end()
+            ->arrayNode('authorization_params')
+                ->useAttributeAsKey('name')
+                ->scalarPrototype()->end()
+                ->defaultValue([])
+                ->info('Additional parameters to include in the authorization request (e.g. prompt, max_age, display, ui_locales, acr_values, login_hint).')
             ->end()
         ;
     }
@@ -193,6 +199,7 @@ class OidcLoginFactory extends AbstractFactory
 
         $authenticatorId = 'security.authenticator.oidc_login.'.$firewallName;
         $options = array_intersect_key($config, $this->options);
+        $options['user_data_source'] = $config['user_data_source'];
         $options['firewall_name'] = $firewallName;
         $options['scope'] = $config['scope'];
         $options['user_data_source'] = $config['user_data_source'];

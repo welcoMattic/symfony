@@ -22,6 +22,7 @@ CHANGELOG
  * Add `user_data_source` and `user_identifier_claim` options to the `oidc_login` authenticator
  * Add `token_endpoint_auth_method` option (`client_secret_post`, `client_secret_basic`) to the `oidc_login` authenticator
  * Add `enable_end_session` and `post_logout_redirect_path` options to the `oidc_login` authenticator for RP-Initiated Logout
+ * Add `direct_redirect` option to the `oidc_login` authenticator
 
 8.1
 ---

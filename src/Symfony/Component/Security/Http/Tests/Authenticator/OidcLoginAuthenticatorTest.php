@@ -134,7 +134,7 @@ class OidcLoginAuthenticatorTest extends TestCase
 
     public function testStartRequiresASession()
     {
-        $authenticator = $this->createAuthenticator();
+        $authenticator = $this->createAuthenticator(['direct_redirect' => true]);
 
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('nor on a stateless firewall');
@@ -541,9 +541,9 @@ class OidcLoginAuthenticatorTest extends TestCase
         $this->assertCount(0, $attemptKeys);
     }
 
-    public function testStartRedirectsToProvider()
+    public function testStartWithDirectRedirect()
     {
-        $authenticator = $this->createAuthenticator();
+        $authenticator = $this->createAuthenticator(['direct_redirect' => true]);
         $request = Request::create('/protected');
         $request->setSession(new Session(new MockArraySessionStorage()));
 
@@ -567,7 +567,7 @@ class OidcLoginAuthenticatorTest extends TestCase
     #[DataProvider('provideScopes')]
     public function testStartRequestsTheConfiguredScopes(array|string $scope, string $expectedScope)
     {
-        $authenticator = $this->createAuthenticator(['scope' => $scope]);
+        $authenticator = $this->createAuthenticator(['direct_redirect' => true, 'scope' => $scope]);
         $request = Request::create('/protected');
         $request->setSession(new Session(new MockArraySessionStorage()));
 
@@ -599,7 +599,7 @@ class OidcLoginAuthenticatorTest extends TestCase
         $this->expectException(AuthenticationException::class);
         $this->expectExceptionMessage('does not announce any "authorization_endpoint"');
 
-        $this->createAuthenticator()->start($request);
+        $this->createAuthenticator(['direct_redirect' => true])->start($request);
     }
 
     public function testStartRejectsAnInsecureAuthorizationEndpoint()
@@ -614,7 +614,7 @@ class OidcLoginAuthenticatorTest extends TestCase
         $request->setSession($session);
 
         try {
-            $this->createAuthenticator()->start($request);
+            $this->createAuthenticator(['direct_redirect' => true])->start($request);
             $this->fail(\sprintf('Expected an "%s" to be thrown.', AuthenticationException::class));
         } catch (AuthenticationException $e) {
             $this->assertStringContainsString('must use HTTPS', $e->getMessage());
@@ -626,7 +626,7 @@ class OidcLoginAuthenticatorTest extends TestCase
 
     public function testStartStoresStateNonceAndCodeVerifierInSession()
     {
-        $authenticator = $this->createAuthenticator();
+        $authenticator = $this->createAuthenticator(['direct_redirect' => true]);
         $request = Request::create('/protected');
         $session = new Session(new MockArraySessionStorage());
         $request->setSession($session);
@@ -645,9 +645,9 @@ class OidcLoginAuthenticatorTest extends TestCase
         $this->assertSame($params['redirect_uri'], $attempt['redirect_uri']);
     }
 
-    public function testStartWithoutPkce()
+    public function testStartWithDirectRedirectWithoutPkce()
     {
-        $authenticator = $this->createAuthenticator(['pkce_enabled' => false]);
+        $authenticator = $this->createAuthenticator(['direct_redirect' => true, 'pkce_enabled' => false]);
         $request = Request::create('/protected');
         $request->setSession(new Session(new MockArraySessionStorage()));
 
@@ -659,9 +659,9 @@ class OidcLoginAuthenticatorTest extends TestCase
         $this->assertArrayNotHasKey('code_challenge_method', $params);
     }
 
-    public function testStartWithPlainPkce()
+    public function testStartWithDirectRedirectPlainPkce()
     {
-        $authenticator = $this->createAuthenticator(['pkce_method' => 'plain']);
+        $authenticator = $this->createAuthenticator(['direct_redirect' => true, 'pkce_method' => 'plain']);
         $request = Request::create('/protected');
         $request->setSession(new Session(new MockArraySessionStorage()));
 
@@ -675,7 +675,7 @@ class OidcLoginAuthenticatorTest extends TestCase
 
     public function testStartWithUnknownPkceMethodThrows()
     {
-        $authenticator = $this->createAuthenticator(['pkce_method' => 'unknown']);
+        $authenticator = $this->createAuthenticator(['direct_redirect' => true, 'pkce_method' => 'unknown']);
         $request = Request::create('/protected');
         $request->setSession(new Session(new MockArraySessionStorage()));
 
@@ -687,7 +687,7 @@ class OidcLoginAuthenticatorTest extends TestCase
 
     public function testStartForwardsAuthorizationParams()
     {
-        $authenticator = $this->createAuthenticator(authorizationParams: ['prompt' => 'consent', 'max_age' => '3600']);
+        $authenticator = $this->createAuthenticator(['direct_redirect' => true], authorizationParams: ['prompt' => 'consent', 'max_age' => '3600']);
         $request = Request::create('/protected');
         $request->setSession(new Session(new MockArraySessionStorage()));
 
@@ -913,7 +913,7 @@ class OidcLoginAuthenticatorTest extends TestCase
 
     public function testFifoCapRemovesOldestAttempts()
     {
-        $authenticator = $this->createAuthenticator();
+        $authenticator = $this->createAuthenticator(['direct_redirect' => true]);
         $request = Request::create('/protected');
         $session = new Session(new MockArraySessionStorage());
         $request->setSession($session);
@@ -1087,6 +1087,17 @@ class OidcLoginAuthenticatorTest extends TestCase
         $this->expectExceptionMessage('Missing OIDC redirect URI in session.');
 
         $authenticator->authenticate($request);
+    }
+
+    public function testStartWithoutDirectRedirect()
+    {
+        $authenticator = $this->createAuthenticator(['direct_redirect' => false]);
+        $request = Request::create('/protected');
+
+        $response = $authenticator->start($request);
+
+        $this->assertInstanceOf(RedirectResponse::class, $response);
+        $this->assertSame('http://localhost/login', $response->getTargetUrl());
     }
 
     private function createCallbackRequest(string $state, string $nonce, ?string $codeVerifier = null): Request

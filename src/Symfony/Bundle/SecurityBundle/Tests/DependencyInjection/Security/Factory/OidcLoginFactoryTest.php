@@ -182,18 +182,30 @@ class OidcLoginFactoryTest extends TestCase
         $this->assertSame(-25, $factory->getPriority());
     }
 
-    public function testPkceDefaults()
+    public function testDefaultConfiguration()
     {
-        $factory = new OidcLoginFactory();
-        $finalizedConfig = $this->processConfig([
+        $config = [
             'provider_uri' => 'https://provider.example.com',
             'client_id' => 'my-client-id',
             'client_secret' => 'my-client-secret',
             'check_path' => '/oidc/callback',
-        ], $factory);
+        ];
 
+        $factory = new OidcLoginFactory();
+        $finalizedConfig = $this->processConfig($config, $factory);
+
+        $this->assertSame('/oidc/callback', $finalizedConfig['check_path']);
+        $this->assertSame('/login', $finalizedConfig['login_path']);
+        $this->assertSame(['openid'], $finalizedConfig['scope']);
+        $this->assertSame('sub', $finalizedConfig['user_identifier_claim']);
+        $this->assertFalse($finalizedConfig['direct_redirect']);
+        $this->assertSame('userinfo', $finalizedConfig['user_data_source']);
         $this->assertTrue($finalizedConfig['pkce']['enabled']);
         $this->assertSame('S256', $finalizedConfig['pkce']['method']);
+        $this->assertSame('client_secret_post', $finalizedConfig['token_endpoint_auth_method']);
+        $this->assertFalse($finalizedConfig['enable_end_session']);
+        $this->assertSame(3600, $finalizedConfig['discovery_cache_ttl']);
+        $this->assertSame([], $finalizedConfig['authorization_params']);
     }
 
     public function testPromptAndMaxAgeAreMergedIntoAuthorizationParams()

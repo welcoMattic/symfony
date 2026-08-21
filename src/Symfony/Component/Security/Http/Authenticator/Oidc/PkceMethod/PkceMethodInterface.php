@@ -29,6 +29,10 @@ interface PkceMethodInterface
 
     /**
      * Derives the code challenge from the given code verifier.
+     *
+     * @param string $verifier The code verifier (a high-entropy cryptographic random string)
+     *
+     * @return string The code challenge, derived from the verifier according to the PKCE method
      */
     public function createChallenge(string $verifier): string;
 }

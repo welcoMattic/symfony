@@ -63,10 +63,12 @@ final class OidcLoginAuthenticator extends AbstractAuthenticator implements Auth
     ) {
         $this->options = array_merge([
             'check_path' => '/oidc/callback',
+            'login_path' => '/login',
+            'direct_redirect' => false,
+            'user_identifier_claim' => 'sub',
+            'user_data_source' => 'userinfo',
             'firewall_name' => 'main',
             'scope' => ['openid'],
-            'user_data_source' => 'userinfo',
-            'user_identifier_claim' => 'sub',
             'pkce_enabled' => true,
             'pkce_method' => 'S256',
         ], $options);
@@ -82,6 +84,10 @@ final class OidcLoginAuthenticator extends AbstractAuthenticator implements Auth
 
     public function start(Request $request, ?AuthenticationException $authException = null): Response
     {
+        if (!$this->options['direct_redirect']) {
+            return new RedirectResponse($this->getLoginUrl($request));
+        }
+
         $session = $this->getSession($request);
         $prefix = $this->getSessionPrefix();
 
@@ -283,6 +289,11 @@ final class OidcLoginAuthenticator extends AbstractAuthenticator implements Auth
             // must not cancel the logins pending in the others
             throw new AuthenticationException(\sprintf('OIDC provider returned an error: "%s"', $description));
         }
+    }
+
+    private function getLoginUrl(Request $request): string
+    {
+        return $this->httpUtils->generateUri($request, $this->options['login_path']);
     }
 
     /**
