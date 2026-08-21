@@ -158,6 +158,67 @@ class OidcLoginFactoryTest extends TestCase
         $this->assertSame('S256', $finalizedConfig['pkce']['method']);
     }
 
+    public function testPromptAndMaxAgeAreMergedIntoAuthorizationParams()
+    {
+        $container = new ContainerBuilder();
+
+        $config = [
+            'provider_uri' => 'https://provider.example.com',
+            'client_id' => 'my-client-id',
+            'client_secret' => 'my-client-secret',
+            'check_path' => '/oidc/callback',
+            'prompt' => 'consent',
+            'max_age' => 3600,
+            'authorization_params' => ['ui_locales' => 'fr'],
+        ];
+
+        $factory = new OidcLoginFactory();
+        $finalizedConfig = $this->processConfig($config, $factory);
+        $factory->createAuthenticator($container, 'main', $finalizedConfig, 'userprovider');
+
+        $params = $container->getDefinition('security.authenticator.oidc_login.main')->getArgument(10);
+
+        $this->assertSame('consent', $params['prompt']);
+        $this->assertSame('3600', $params['max_age']);
+        $this->assertSame('fr', $params['ui_locales']);
+    }
+
+    public function testAuthorizationParamsOverrideFirstClassKeys()
+    {
+        $container = new ContainerBuilder();
+
+        $config = [
+            'provider_uri' => 'https://provider.example.com',
+            'client_id' => 'my-client-id',
+            'client_secret' => 'my-client-secret',
+            'check_path' => '/oidc/callback',
+            'prompt' => 'consent',
+            'authorization_params' => ['prompt' => 'login consent'],
+        ];
+
+        $factory = new OidcLoginFactory();
+        $finalizedConfig = $this->processConfig($config, $factory);
+        $factory->createAuthenticator($container, 'main', $finalizedConfig, 'userprovider');
+
+        $params = $container->getDefinition('security.authenticator.oidc_login.main')->getArgument(10);
+
+        $this->assertSame('login consent', $params['prompt']);
+    }
+
+    public function testPromptRejectsUnknownValue()
+    {
+        $factory = new OidcLoginFactory();
+
+        $this->expectException(InvalidConfigurationException::class);
+
+        $this->processConfig([
+            'provider_uri' => 'https://provider.example.com',
+            'client_id' => 'my-client-id',
+            'client_secret' => 'my-client-secret',
+            'prompt' => 'bogus',
+        ], $factory);
+    }
+
     public function testRequiredOptions()
     {
         $factory = new OidcLoginFactory();

@@ -632,6 +632,20 @@ class OidcLoginAuthenticatorTest extends TestCase
         $authenticator->start($request);
     }
 
+    public function testStartForwardsAuthorizationParams()
+    {
+        $authenticator = $this->createAuthenticator(authorizationParams: ['prompt' => 'consent', 'max_age' => '3600']);
+        $request = Request::create('/protected');
+        $request->setSession(new Session(new MockArraySessionStorage()));
+
+        $location = $authenticator->start($request)->getTargetUrl();
+        $params = [];
+        parse_str(parse_url($location, \PHP_URL_QUERY), $params);
+
+        $this->assertSame('consent', $params['prompt']);
+        $this->assertSame('3600', $params['max_age']);
+    }
+
     public function testAuthenticatePassesCodeVerifierToExchangeCode()
     {
         $nonce = bin2hex(random_bytes(16));
@@ -1054,7 +1068,7 @@ class OidcLoginAuthenticatorTest extends TestCase
         return $header.'.'.$payload.'.'.$signature;
     }
 
-    private function createAuthenticator(array $options = [], ?UserProviderInterface $userProvider = null): OidcLoginAuthenticator
+    private function createAuthenticator(array $options = [], ?UserProviderInterface $userProvider = null, array $authorizationParams = []): OidcLoginAuthenticator
     {
         $pkceMethods = new class(['S256' => static fn () => new S256PkceMethod(), 'plain' => static fn () => new PlainPkceMethod()]) implements ServiceProviderInterface {
             use ServiceLocatorTrait;
@@ -1071,6 +1085,7 @@ class OidcLoginAuthenticatorTest extends TestCase
             $this->failureHandler,
             $pkceMethods,
             $options,
+            $authorizationParams,
         );
     }
 }

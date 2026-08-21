@@ -100,6 +100,20 @@ class OidcLoginFactory extends AbstractFactory
                     ->scalarNode('method')->defaultValue('S256')->info('PKCE code challenge method. Must match a service tagged "security.oidc.pkce_method" (builtin: "S256", "plain").')->end()
                 ->end()
             ->end()
+            ->enumNode('prompt')
+                ->values(['none', 'login', 'consent', 'select_account'])
+                ->info('OIDC "prompt" parameter. For multi-value combinations, use "authorization_params.prompt" instead.')
+            ->end()
+            ->integerNode('max_age')
+                ->min(0)
+                ->info('Max seconds since last end-user authentication. Triggers re-authentication when exceeded.')
+            ->end()
+            ->arrayNode('authorization_params')
+                ->useAttributeAsKey('name')
+                ->scalarPrototype()->end()
+                ->defaultValue([])
+                ->info('Additional parameters to include in the authorization request (e.g. prompt, max_age, display, ui_locales, acr_values, login_hint).')
+            ->end()
         ;
     }
 
@@ -159,6 +173,18 @@ class OidcLoginFactory extends AbstractFactory
         $options['scope'] = $config['scope'];
         $options['pkce_enabled'] = $config['pkce']['enabled'];
         $options['pkce_method'] = $config['pkce']['method'];
+        if (isset($config['max_age'])) {
+            $options['max_age'] = $config['max_age'];
+        }
+
+        $authorizationParams = [];
+        if (isset($config['prompt'])) {
+            $authorizationParams['prompt'] = $config['prompt'];
+        }
+        if (isset($config['max_age'])) {
+            $authorizationParams['max_age'] = (string) $config['max_age'];
+        }
+        $authorizationParams = array_merge($authorizationParams, $config['authorization_params'] ?? []);
 
         $container
             ->setDefinition($authenticatorId, new ChildDefinition('security.authenticator.oidc_login'))
@@ -170,6 +196,7 @@ class OidcLoginFactory extends AbstractFactory
             ->replaceArgument(6, new Reference($this->createAuthenticationSuccessHandler($container, $firewallName, $config)))
             ->replaceArgument(7, new Reference($this->createAuthenticationFailureHandler($container, $firewallName, $config)))
             ->replaceArgument(9, $options)
+            ->replaceArgument(10, $authorizationParams)
         ;
 
         $callbackUris = $container->hasParameter('security.oidc_login.callback_uris') ? (array) $container->getParameter('security.oidc_login.callback_uris') : [];

@@ -18,6 +18,7 @@ CHANGELOG
  * Add role hierarchy graph to the profiler security panel
  * Add `oidc_login` firewall authenticator for the OpenID Connect Authorization Code Flow, along with an `oidc` user provider for the users it builds from the OIDC claims
  * Add `pkce` configuration (enable/disable, method) to the `oidc_login` authenticator
+ * Add `prompt`, `max_age` and `authorization_params` options to the `oidc_login` authenticator
 
 8.1
 ---

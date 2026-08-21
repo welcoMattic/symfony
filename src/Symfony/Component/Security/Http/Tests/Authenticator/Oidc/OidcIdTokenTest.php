@@ -320,6 +320,52 @@ class OidcIdTokenTest extends TestCase
         return new OidcIdToken(new MockClock());
     }
 
+    public function testValidateClaimsWithinMaxAge()
+    {
+        $claims = [
+            'iss' => 'https://provider.example.com',
+            'aud' => 'my-client-id',
+            'exp' => time() + 3600,
+            'iat' => time(),
+            'auth_time' => time() - 30,
+        ];
+
+        $this->createIdToken()->validateClaims($claims, 'https://provider.example.com', 'my-client-id', null, 300);
+
+        $this->addToAssertionCount(1);
+    }
+
+    public function testValidateClaimsExceedingMaxAge()
+    {
+        $claims = [
+            'iss' => 'https://provider.example.com',
+            'aud' => 'my-client-id',
+            'exp' => time() + 3600,
+            'iat' => time(),
+            'auth_time' => time() - 600,
+        ];
+
+        $this->expectException(AuthenticationException::class);
+        $this->expectExceptionMessage('max_age');
+
+        $this->createIdToken()->validateClaims($claims, 'https://provider.example.com', 'my-client-id', null, 300);
+    }
+
+    public function testValidateClaimsMissingAuthTimeWhenMaxAgeRequested()
+    {
+        $claims = [
+            'iss' => 'https://provider.example.com',
+            'aud' => 'my-client-id',
+            'exp' => time() + 3600,
+            'iat' => time(),
+        ];
+
+        $this->expectException(AuthenticationException::class);
+        $this->expectExceptionMessage('auth_time');
+
+        $this->createIdToken()->validateClaims($claims, 'https://provider.example.com', 'my-client-id', null, 300);
+    }
+
     private function buildJwt(array $claims = []): string
     {
         return (new CompactSerializer())->serialize(

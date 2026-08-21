@@ -40,6 +40,7 @@ return static function (ContainerConfigurator $container) {
                 abstract_arg('authentication failure handler'),
                 tagged_locator('security.oidc.pkce_method', 'index'),
                 abstract_arg('options'),
+                abstract_arg('authorization params'),
             ])
 
         ->set('security.authenticator.oidc_login.id_token', OidcIdToken::class)

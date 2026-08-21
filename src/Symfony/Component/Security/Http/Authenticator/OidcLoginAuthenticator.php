@@ -59,6 +59,7 @@ final class OidcLoginAuthenticator extends AbstractAuthenticator implements Auth
         private readonly AuthenticationFailureHandlerInterface $failureHandler,
         private readonly ServiceProviderInterface $pkceMethods,
         array $options,
+        private readonly array $authorizationParams = [],
     ) {
         $this->options = array_merge([
             'check_path' => '/oidc/callback',
@@ -114,6 +115,9 @@ final class OidcLoginAuthenticator extends AbstractAuthenticator implements Auth
             $params['code_challenge'] = $this->pkceMethods->get($method)->createChallenge($codeVerifier);
             $params['code_challenge_method'] = $method;
         }
+
+        $protectedParams = ['response_type', 'client_id', 'redirect_uri', 'scope', 'state', 'nonce'];
+        $params = array_merge($params, array_diff_key($this->authorizationParams, array_flip($protectedParams)));
 
         // each pending attempt lives under its own session key, carrying the state, so
         // that concurrent logins started from several tabs write distinct entries instead
@@ -213,6 +217,7 @@ final class OidcLoginAuthenticator extends AbstractAuthenticator implements Auth
             $this->discovery->getConfiguration()['issuer'] ?? '',
             $this->clientId,
             $nonce,
+            $this->options['max_age'] ?? null,
         );
 
         $claims = $this->fetchUserClaims($tokenData['access_token'], $idTokenClaims);
