@@ -74,9 +74,9 @@ class OidcLoginFactory extends AbstractFactory
                 ->info('The OIDC client identifier.')
             ->end()
             ->scalarNode('client_secret')
-                ->isRequired()
+                ->defaultNull()
                 ->cannotBeEmpty()
-                ->info('The OIDC client secret.')
+                ->info('The OIDC client secret. Required by every "token_endpoint_auth_method" but "none", which declares a public client.')
             ->end()
             ->arrayNode('scope')
                 ->beforeNormalization()->castToArray()->end()
@@ -104,9 +104,9 @@ class OidcLoginFactory extends AbstractFactory
                 ->info('When true (typical for a "Log in with..." button), the entry point redirects straight to the OIDC provider to start the flow. When false, it redirects to the firewall login_path instead.')
             ->end()
             ->enumNode('token_endpoint_auth_method')
-                ->values(['client_secret_post', 'client_secret_basic'])
+                ->values(['client_secret_post', 'client_secret_basic', 'none'])
                 ->defaultValue('client_secret_post')
-                ->info('Authentication method for the token endpoint.')
+                ->info('Authentication method for the token endpoint. "none" declares a public client (a SPA, a mobile or a native application), which holds no secret and relies on PKCE to protect the code exchange.')
             ->end()
 
             ->arrayNode('pkce')
@@ -142,6 +142,24 @@ class OidcLoginFactory extends AbstractFactory
                 ->scalarPrototype()->end()
                 ->defaultValue([])
                 ->info('Additional parameters to include in the authorization request (e.g. prompt, max_age, display, ui_locales, acr_values, login_hint).')
+            ->end()
+        ;
+
+        // the client type is what "token_endpoint_auth_method" really selects, so the
+        // options it makes mandatory or meaningless can only be checked here, once the
+        // whole authenticator configuration is known
+        $node
+            ->validate()
+                ->ifTrue(static fn ($v): bool => 'none' !== $v['token_endpoint_auth_method'] && null === $v['client_secret'])
+                ->thenInvalid('The OIDC "client_secret" is required by the "token_endpoint_auth_method" in use, which defaults to "client_secret_post". Set a secret, or set "token_endpoint_auth_method" to "none" to declare a public client, which authenticates with its "client_id" and PKCE only.')
+            ->end()
+            ->validate()
+                ->ifTrue(static fn ($v): bool => 'none' === $v['token_endpoint_auth_method'] && null !== $v['client_secret'])
+                ->thenInvalid('The OIDC "client_secret" must not be set when "token_endpoint_auth_method" is "none", as a public client never sends it. Remove the secret, or authenticate with it by using "client_secret_post" or "client_secret_basic".')
+            ->end()
+            ->validate()
+                ->ifTrue(static fn ($v): bool => 'none' === $v['token_endpoint_auth_method'] && !$v['pkce']['enabled'])
+                ->thenInvalid('The OIDC "pkce.enabled" option cannot be false when "token_endpoint_auth_method" is "none": a public client sends no secret, so PKCE is the only thing binding the authorization code to it.')
             ->end()
         ;
     }
@@ -189,13 +207,23 @@ class OidcLoginFactory extends AbstractFactory
         ;
 
         $oidcClientId = 'security.authenticator.oidc_login.client.'.$firewallName;
-        $container
-            ->setDefinition($oidcClientId, new ChildDefinition('security.authenticator.oidc_login.client'))
-            ->replaceArgument(1, new Reference($discoveryId))
-            ->replaceArgument(2, $config['client_id'])
-            ->replaceArgument(3, $config['client_secret'])
-            ->replaceArgument(4, $config['token_endpoint_auth_method'] ?? 'client_secret_post')
-        ;
+        if ('none' === ($config['token_endpoint_auth_method'] ?? 'client_secret_post')) {
+            // a public client holds no secret, so it only tells the token endpoint which
+            // client_id the authorization code was issued to, and proves it with PKCE
+            $container
+                ->setDefinition($oidcClientId, new ChildDefinition('security.authenticator.oidc_login.public_client'))
+                ->replaceArgument(1, new Reference($discoveryId))
+                ->replaceArgument(2, $config['client_id'])
+            ;
+        } else {
+            $container
+                ->setDefinition($oidcClientId, new ChildDefinition('security.authenticator.oidc_login.client'))
+                ->replaceArgument(1, new Reference($discoveryId))
+                ->replaceArgument(2, $config['client_id'])
+                ->replaceArgument(3, $config['client_secret'])
+                ->replaceArgument(4, $config['token_endpoint_auth_method'] ?? 'client_secret_post')
+            ;
+        }
 
         $authenticatorId = 'security.authenticator.oidc_login.'.$firewallName;
         $options = array_intersect_key($config, $this->options);

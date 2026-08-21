@@ -14,6 +14,7 @@ namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 use Symfony\Bundle\SecurityBundle\Routing\OidcLoginRouteLoader;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcConfidentialClient;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcIdToken;
+use Symfony\Component\Security\Http\Authenticator\Oidc\OidcPublicClient;
 use Symfony\Component\Security\Http\Authenticator\Oidc\PkceMethod\PlainPkceMethod;
 use Symfony\Component\Security\Http\Authenticator\Oidc\PkceMethod\S256PkceMethod;
 use Symfony\Component\Security\Http\Authenticator\OidcLoginAuthenticator;
@@ -74,6 +75,14 @@ return static function (ContainerConfigurator $container) {
                 abstract_arg('client ID'),
                 abstract_arg('client secret'),
                 abstract_arg('token endpoint auth method'),
+            ])
+
+        ->set('security.authenticator.oidc_login.public_client', OidcPublicClient::class)
+            ->abstract()
+            ->args([
+                service('http_client'),
+                abstract_arg('OIDC discovery'),
+                abstract_arg('client ID'),
             ])
 
         ->set('security.authenticator.oidc_login.route_loader', OidcLoginRouteLoader::class)

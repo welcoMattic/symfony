@@ -21,6 +21,7 @@ CHANGELOG
  * Cache the discovery document of the `oidc` access token handler for one hour, where it was fetched again on every refresh of the JWKS
  * Add pluggable PKCE methods for the OIDC login authenticator (`PkceMethodInterface`, `S256PkceMethod`, `PlainPkceMethod`)
  * Add `OidcEndSessionListener` for RP-Initiated Logout via the OIDC `end_session_endpoint`
+ * Add `OidcPublicClient` to run the OIDC login flow as a public client, which holds no client secret and relies on PKCE
 
 8.1
 ---
