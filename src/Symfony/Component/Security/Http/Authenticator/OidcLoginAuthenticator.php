@@ -22,6 +22,7 @@ use Symfony\Component\Security\Http\Authentication\AuthenticationFailureHandlerI
 use Symfony\Component\Security\Http\Authentication\AuthenticationSuccessHandlerInterface;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcClient;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcIdToken;
+use Symfony\Component\Security\Http\Authenticator\Oidc\OidcSignatureVerifier;
 use Symfony\Component\Security\Http\Authenticator\Oidc\PkceMethod\PkceMethodInterface;
 use Symfony\Component\Security\Http\Authenticator\Passport\Badge\UserBadge;
 use Symfony\Component\Security\Http\Authenticator\Passport\Passport;
@@ -46,7 +47,11 @@ final class OidcLoginAuthenticator extends AbstractAuthenticator implements Auth
     private array $options;
 
     /**
-     * @param ServiceProviderInterface<PkceMethodInterface> $pkceMethods A locator of PKCE methods keyed by method name
+     * @param ServiceProviderInterface<PkceMethodInterface> $pkceMethods       A locator of PKCE methods keyed by method name
+     * @param OidcSignatureVerifier|null                    $signatureVerifier Verifies the ID token signature against the provider
+     *                                                                         JWKS, or null to decode the token without verifying it,
+     *                                                                         which OIDC Core 1.0, Section 3.1.3.7, item 6 only allows
+     *                                                                         as long as the token endpoint request verifies TLS
      */
     public function __construct(
         private readonly HttpUtils $httpUtils,
@@ -60,6 +65,7 @@ final class OidcLoginAuthenticator extends AbstractAuthenticator implements Auth
         private readonly ServiceProviderInterface $pkceMethods,
         array $options,
         private readonly array $authorizationParams = [],
+        private readonly ?OidcSignatureVerifier $signatureVerifier = null,
     ) {
         $this->options = array_merge([
             'check_path' => '/oidc/callback',
@@ -219,7 +225,14 @@ final class OidcLoginAuthenticator extends AbstractAuthenticator implements Auth
 
         $tokenData = $this->exchangeAuthorizationCode($redirectUri, $code, $codeVerifier);
 
-        $idTokenClaims = $this->idToken->decode($tokenData['id_token']);
+        // the signature is verified before the claims are read, so that a token the
+        // provider did not issue never reaches the claim validation at all
+        if (null !== $this->signatureVerifier) {
+            $idTokenClaims = $this->signatureVerifier->verify($tokenData['id_token']);
+        } else {
+            $idTokenClaims = $this->idToken->decode($tokenData['id_token']);
+        }
+
         $this->idToken->validateClaims(
             $idTokenClaims,
             $this->discovery->getConfiguration()['issuer'] ?? '',

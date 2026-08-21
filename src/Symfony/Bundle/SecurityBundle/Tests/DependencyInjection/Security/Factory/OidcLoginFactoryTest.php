@@ -627,6 +627,103 @@ class OidcLoginFactoryTest extends TestCase
         $this->assertSame('S256', $finalizedConfig['pkce']['method']);
     }
 
+    public function testIdTokenSignatureIsVerifiedByDefault()
+    {
+        $container = new ContainerBuilder();
+        $factory = new OidcLoginFactory();
+
+        $config = $this->processConfig([
+            'provider_uri' => 'https://provider.example.com',
+            'client_id' => 'my-client-id',
+            'client_secret' => 'my-client-secret',
+        ], $factory);
+        $factory->createAuthenticator($container, 'main', $config, 'userprovider');
+
+        $this->assertTrue($config['id_token_signature']['required']);
+        // "RS256" is the only algorithm OIDC Core 1.0 requires providers to support
+        $this->assertSame(['RS256'], $config['id_token_signature']['algorithms']);
+        $this->assertTrue($config['id_token_signature']['enforce_key_usage_verification']);
+
+        $verifier = $container->getDefinition('security.authenticator.oidc_login.signature_verifier.main');
+        $this->assertSame('security.authenticator.oidc_login.signature_verifier', $verifier->getParent());
+        // the firewall discovery document is where the JWKS URI is announced
+        $this->assertEquals(new Reference('security.authenticator.oidc_login.discovery.main'), $verifier->getArgument(0));
+        $this->assertSame(['RS256'], $verifier->getArgument(3));
+        $this->assertTrue($verifier->getArgument(5));
+
+        $authenticator = $container->getDefinition('security.authenticator.oidc_login.main');
+        $this->assertEquals(new Reference('security.authenticator.oidc_login.signature_verifier.main'), $authenticator->getArgument(11));
+    }
+
+    public function testIdTokenSignatureVerificationCanBeTurnedOff()
+    {
+        $container = new ContainerBuilder();
+        $factory = new OidcLoginFactory();
+
+        $config = $this->processConfig([
+            'provider_uri' => 'https://provider.example.com',
+            'client_id' => 'my-client-id',
+            'client_secret' => 'my-client-secret',
+            'id_token_signature' => ['required' => false],
+        ], $factory);
+        $factory->createAuthenticator($container, 'main', $config, 'userprovider');
+
+        $this->assertFalse($container->hasDefinition('security.authenticator.oidc_login.signature_verifier.main'));
+
+        $authenticator = $container->getDefinition('security.authenticator.oidc_login.main');
+        $this->assertNull($authenticator->getArgument(11));
+    }
+
+    public function testIdTokenSignatureAlgorithmsAndKeyUsageAreConfigurable()
+    {
+        $container = new ContainerBuilder();
+        $factory = new OidcLoginFactory();
+
+        $config = $this->processConfig([
+            'provider_uri' => 'https://provider.example.com',
+            'client_id' => 'my-client-id',
+            'client_secret' => 'my-client-secret',
+            'id_token_signature' => [
+                'algorithms' => ['ES256', 'PS256'],
+                'enforce_key_usage_verification' => false,
+            ],
+        ], $factory);
+        $factory->createAuthenticator($container, 'main', $config, 'userprovider');
+
+        $verifier = $container->getDefinition('security.authenticator.oidc_login.signature_verifier.main');
+        $this->assertSame(['ES256', 'PS256'], $verifier->getArgument(3));
+        $this->assertFalse($verifier->getArgument(5));
+    }
+
+    public function testASingleIdTokenSignatureAlgorithmCanBeGivenAsAString()
+    {
+        $factory = new OidcLoginFactory();
+
+        $config = $this->processConfig([
+            'provider_uri' => 'https://provider.example.com',
+            'client_id' => 'my-client-id',
+            'client_secret' => 'my-client-secret',
+            'id_token_signature' => ['algorithms' => 'ES256'],
+        ], $factory);
+
+        $this->assertSame(['ES256'], $config['id_token_signature']['algorithms']);
+    }
+
+    public function testRejectsTurningTheIdTokenSignatureVerificationOffForAPublicClient()
+    {
+        $factory = new OidcLoginFactory();
+
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('The OIDC "id_token_signature.required" option cannot be false when "token_endpoint_auth_method" is "none"');
+
+        $this->processConfig([
+            'provider_uri' => 'https://provider.example.com',
+            'client_id' => 'my-client-id',
+            'token_endpoint_auth_method' => 'none',
+            'id_token_signature' => ['required' => false],
+        ], $factory);
+    }
+
     private function processConfig(array $config, OidcLoginFactory $factory): array
     {
         $nodeDefinition = new ArrayNodeDefinition('oidc-login');

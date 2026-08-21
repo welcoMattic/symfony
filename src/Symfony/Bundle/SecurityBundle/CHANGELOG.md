@@ -24,6 +24,7 @@ CHANGELOG
  * Add `enable_end_session` and `post_logout_redirect_path` options to the `oidc_login` authenticator for RP-Initiated Logout
  * Add `direct_redirect` option to the `oidc_login` authenticator
  * Add the `none` value to the `token_endpoint_auth_method` option of the `oidc_login` authenticator, to declare a public client, and make `client_secret` optional for it
+ * Add the `id_token_signature` configuration (`required`, `algorithms`, `enforce_key_usage_verification`) to the `oidc_login` authenticator, which now verifies the ID token signature by default
 
 8.1
 ---

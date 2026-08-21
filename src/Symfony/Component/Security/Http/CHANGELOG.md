@@ -22,6 +22,7 @@ CHANGELOG
  * Add pluggable PKCE methods for the OIDC login authenticator (`PkceMethodInterface`, `S256PkceMethod`, `PlainPkceMethod`)
  * Add `OidcEndSessionListener` for RP-Initiated Logout via the OIDC `end_session_endpoint`
  * Add `OidcPublicClient` to run the OIDC login flow as a public client, which holds no client secret and relies on PKCE
+ * Add `OidcSignatureVerifier` to verify the ID token signature of the OIDC login authenticator against the provider JWKS, which it now does by default
 
 8.1
 ---

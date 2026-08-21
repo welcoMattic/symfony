@@ -116,6 +116,26 @@ class OidcLoginFactory extends AbstractFactory
                     ->scalarNode('method')->defaultValue('S256')->info('PKCE code challenge method. Must match a service tagged "security.oidc.pkce_method" (builtin: "S256", "plain").')->end()
                 ->end()
             ->end()
+            ->arrayNode('id_token_signature')
+                ->addDefaultsIfNotSet()
+                ->children()
+                    ->booleanNode('required')
+                        ->defaultTrue()
+                        ->info('When true (default), the ID token signature is verified against the provider JWKS. Setting it to false decodes the ID token without verifying it, which OIDC Core 1.0, Section 3.1.3.7, item 6 only allows because the token comes from the token endpoint over TLS: it is then only as safe as the TLS verification of the HTTP client used for that request, so never turn it off with a client configured with "verify_peer: false" or "verify_host: false", nor behind a TLS-terminating proxy.')
+                    ->end()
+                    ->arrayNode('algorithms', 'algorithm')
+                        ->beforeNormalization()->castToArray()->end()
+                        ->scalarPrototype()->end()
+                        ->defaultValue(['RS256'])
+                        ->requiresAtLeastOneElement()
+                        ->info('The signature algorithms the ID token is accepted to be signed with, among "RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "PS256", "PS384" and "PS512". Defaults to "RS256", the only algorithm OIDC Core 1.0 requires providers to support; list the one your provider announces in "id_token_signing_alg_values_supported" when it signs with another. No HMAC algorithm is accepted, so that a public key can never be used as a shared secret.')
+                    ->end()
+                    ->booleanNode('enforce_key_usage_verification')
+                        ->defaultTrue()
+                        ->info('When enabled (default), only keys explicitly designated for signature (via "use":"sig" or a "key_ops" entry containing "sign"/"verify") are accepted. When disabled, keys without any usage designation are also accepted; keys explicitly restricted to encryption are still rejected.')
+                    ->end()
+                ->end()
+            ->end()
             ->enumNode('prompt')
                 ->values(['none', 'login', 'consent', 'select_account'])
                 ->info('OIDC "prompt" parameter. For multi-value combinations, use "authorization_params.prompt" instead.')
@@ -160,6 +180,10 @@ class OidcLoginFactory extends AbstractFactory
             ->validate()
                 ->ifTrue(static fn ($v): bool => 'none' === $v['token_endpoint_auth_method'] && !$v['pkce']['enabled'])
                 ->thenInvalid('The OIDC "pkce.enabled" option cannot be false when "token_endpoint_auth_method" is "none": a public client sends no secret, so PKCE is the only thing binding the authorization code to it.')
+            ->end()
+            ->validate()
+                ->ifTrue(static fn ($v): bool => 'none' === $v['token_endpoint_auth_method'] && !$v['id_token_signature']['required'])
+                ->thenInvalid('The OIDC "id_token_signature.required" option cannot be false when "token_endpoint_auth_method" is "none": a public client authenticates with nothing but PKCE, so its ID token gets no guarantee left once the signature is not verified either.')
             ->end()
         ;
     }
@@ -225,6 +249,18 @@ class OidcLoginFactory extends AbstractFactory
             ;
         }
 
+        $signatureVerifier = null;
+        if ($config['id_token_signature']['required']) {
+            $signatureVerifierId = 'security.authenticator.oidc_login.signature_verifier.'.$firewallName;
+            $container
+                ->setDefinition($signatureVerifierId, new ChildDefinition('security.authenticator.oidc_login.signature_verifier'))
+                ->replaceArgument(0, new Reference($discoveryId))
+                ->replaceArgument(3, $config['id_token_signature']['algorithms'])
+                ->replaceArgument(5, $config['id_token_signature']['enforce_key_usage_verification'])
+            ;
+            $signatureVerifier = new Reference($signatureVerifierId);
+        }
+
         $authenticatorId = 'security.authenticator.oidc_login.'.$firewallName;
         $options = array_intersect_key($config, $this->options);
         $options['user_data_source'] = $config['user_data_source'];
@@ -257,6 +293,7 @@ class OidcLoginFactory extends AbstractFactory
             ->replaceArgument(7, new Reference($this->createAuthenticationFailureHandler($container, $firewallName, $config)))
             ->replaceArgument(9, $options)
             ->replaceArgument(10, $authorizationParams)
+            ->replaceArgument(11, $signatureVerifier)
         ;
 
         if ($config['enable_end_session']) {

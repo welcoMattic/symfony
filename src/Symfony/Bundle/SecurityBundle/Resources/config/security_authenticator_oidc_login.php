@@ -15,6 +15,7 @@ use Symfony\Bundle\SecurityBundle\Routing\OidcLoginRouteLoader;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcConfidentialClient;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcIdToken;
 use Symfony\Component\Security\Http\Authenticator\Oidc\OidcPublicClient;
+use Symfony\Component\Security\Http\Authenticator\Oidc\OidcSignatureVerifier;
 use Symfony\Component\Security\Http\Authenticator\Oidc\PkceMethod\PlainPkceMethod;
 use Symfony\Component\Security\Http\Authenticator\Oidc\PkceMethod\S256PkceMethod;
 use Symfony\Component\Security\Http\Authenticator\OidcLoginAuthenticator;
@@ -43,6 +44,20 @@ return static function (ContainerConfigurator $container) {
                 tagged_locator('security.oidc.pkce_method', 'index'),
                 abstract_arg('options'),
                 abstract_arg('authorization params'),
+                // replaced by the firewall verifier, unless the ID token signature is not verified
+                null,
+            ])
+
+        ->set('security.authenticator.oidc_login.signature_verifier', OidcSignatureVerifier::class)
+            ->abstract()
+            ->args([
+                abstract_arg('OIDC discovery'),
+                service('cache.app'),
+                service('http_client'),
+                abstract_arg('signature algorithms'),
+                3600,
+                abstract_arg('enforce key usage verification'),
+                service('clock'),
             ])
 
         ->set('security.authenticator.oidc_login.id_token', OidcIdToken::class)
