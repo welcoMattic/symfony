@@ -349,6 +349,39 @@ class OidcLoginFactoryTest extends TestCase
         yield 'test TLD' => ['http://keycloak.test'];
     }
 
+    public function testClaimsSourceAndUserIdentifierDefaults()
+    {
+        $factory = new OidcLoginFactory();
+
+        $finalizedConfig = $this->processConfig([
+            'provider_uri' => 'https://provider.example.com',
+            'client_id' => 'my-client-id',
+            'client_secret' => 'my-client-secret',
+        ], $factory);
+
+        $this->assertSame('userinfo', $finalizedConfig['user_data_source']);
+        $this->assertSame('sub', $finalizedConfig['user_identifier_claim']);
+    }
+
+    public function testClaimsMayBeSourcedFromTheIdToken()
+    {
+        $container = new ContainerBuilder();
+        $factory = new OidcLoginFactory();
+
+        $config = $this->processConfig([
+            'provider_uri' => 'https://provider.example.com',
+            'client_id' => 'my-client-id',
+            'client_secret' => 'my-client-secret',
+            'user_data_source' => 'id_token',
+            'user_identifier_claim' => 'email',
+        ], $factory);
+        $factory->createAuthenticator($container, 'main', $config, 'userprovider');
+
+        $options = $container->getDefinition('security.authenticator.oidc_login.main')->getArgument(8);
+        $this->assertSame('id_token', $options['user_data_source']);
+        $this->assertSame('email', $options['user_identifier_claim']);
+    }
+
     private function processConfig(array $config, OidcLoginFactory $factory): array
     {
         $nodeDefinition = new ArrayNodeDefinition('oidc-login');

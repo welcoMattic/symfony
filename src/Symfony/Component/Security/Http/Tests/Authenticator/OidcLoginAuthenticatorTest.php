@@ -201,7 +201,7 @@ class OidcLoginAuthenticatorTest extends TestCase
     public function testAuthenticateIgnoresProviderSuppliedIdentifierClaim()
     {
         // a provider "userIdentifier" claim must not override the identity derived
-        // from the verified "sub"
+        // from the configured identifier claim
         $nonce = bin2hex(random_bytes(16));
         $state = bin2hex(random_bytes(16));
         $idToken = $this->buildIdToken(['nonce' => $nonce]);
@@ -222,6 +222,59 @@ class OidcLoginAuthenticatorTest extends TestCase
 
         $this->assertSame('user-42', $passport->getUser()->getUserIdentifier());
         $this->assertSame('user-42', $passport->getBadge(UserBadge::class)->getUserIdentifier());
+    }
+
+    public function testAuthenticateWithIdTokenDataSource()
+    {
+        $nonce = bin2hex(random_bytes(16));
+        $state = bin2hex(random_bytes(16));
+        $idToken = $this->buildIdToken([
+            'nonce' => $nonce,
+            'sub' => 'user-42',
+            'email' => 'test@example.com',
+        ]);
+
+        $this->oidcClient->expects($this->once())
+            ->method('exchangeCode')
+            ->willReturn([
+                'access_token' => 'access-123',
+                'id_token' => $idToken,
+            ]);
+
+        $this->oidcClient->expects($this->never())
+            ->method('fetchUserInfo');
+
+        $authenticator = $this->createAuthenticator(['user_data_source' => 'id_token']);
+        $request = $this->createCallbackRequest($state, $nonce);
+
+        $passport = $authenticator->authenticate($request);
+
+        $this->assertSame('user-42', $passport->getBadge(UserBadge::class)->getUserIdentifier());
+    }
+
+    public function testAuthenticateWithCustomUserIdentifierClaim()
+    {
+        $nonce = bin2hex(random_bytes(16));
+        $state = bin2hex(random_bytes(16));
+        $idToken = $this->buildIdToken(['nonce' => $nonce]);
+
+        $this->oidcClient->method('exchangeCode')->willReturn([
+            'access_token' => 'access-123',
+            'id_token' => $idToken,
+        ]);
+        $this->oidcClient->method('fetchUserInfo')->willReturn([
+            'sub' => 'user-42',
+            'email' => 'test@example.com',
+        ]);
+
+        $authenticator = $this->createAuthenticator(['user_identifier_claim' => 'email']);
+        $request = $this->createCallbackRequest($state, $nonce);
+
+        $passport = $authenticator->authenticate($request);
+
+        $this->assertSame('test@example.com', $passport->getBadge(UserBadge::class)->getUserIdentifier());
+        // the user provider receives that identifier, and the built-in one keeps it
+        $this->assertSame('test@example.com', $passport->getUser()->getUserIdentifier());
     }
 
     public function testAuthenticateLoadsTheUserFromTheFirewallUserProvider()

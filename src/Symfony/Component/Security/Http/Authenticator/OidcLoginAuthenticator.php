@@ -58,6 +58,8 @@ final class OidcLoginAuthenticator extends AbstractAuthenticator implements Auth
             'check_path' => '/oidc/callback',
             'firewall_name' => 'main',
             'scope' => ['openid'],
+            'user_data_source' => 'userinfo',
+            'user_identifier_claim' => 'sub',
         ], $options);
     }
 
@@ -196,13 +198,13 @@ final class OidcLoginAuthenticator extends AbstractAuthenticator implements Auth
 
         $claims = $this->fetchUserClaims($tokenData['access_token'], $idTokenClaims);
 
-        // The user is loaded by the firewall's user provider, from the verified "sub"
+        // The user is loaded by the firewall's user provider, from the configured identifier
         // claim and with every claim passed as badge attributes: a provider implementing
         // AttributesBasedUserProviderInterface receives them, which is where mapping
         // claims onto roles belongs. The built-in "oidc" provider builds a self-contained
         // OidcUser, without letting a claim define the identity or grant any role.
         $passport = new SelfValidatingPassport(
-            new UserBadge($claims['sub'], $this->userProvider->loadUserByIdentifier(...), $claims),
+            new UserBadge($claims[$this->options['user_identifier_claim']], $this->userProvider->loadUserByIdentifier(...), $claims),
         );
         $passport->setAttribute('oidc_token_data', $tokenData);
 
@@ -287,13 +289,23 @@ final class OidcLoginAuthenticator extends AbstractAuthenticator implements Auth
      */
     private function fetchUserClaims(string $accessToken, array $idTokenClaims): array
     {
-        $claims = $this->oidcClient->fetchUserInfo($accessToken);
-
-        if (!\is_string($claims['sub'] ?? null) || '' === $claims['sub']) {
-            throw new AuthenticationException('The "sub" claim is missing or invalid in the OIDC response.');
+        if ('userinfo' === $this->options['user_data_source']) {
+            $claims = $this->oidcClient->fetchUserInfo($accessToken);
+        } else {
+            $claims = $idTokenClaims;
         }
 
-        if (!\is_string($idTokenClaims['sub'] ?? null) || !hash_equals($idTokenClaims['sub'], $claims['sub'])) {
+        $userIdentifierClaim = $this->options['user_identifier_claim'];
+        if (!\is_string($claims[$userIdentifierClaim] ?? null) || '' === $claims[$userIdentifierClaim]) {
+            throw new AuthenticationException(\sprintf('The "%s" claim is missing or invalid in the OIDC response.', $userIdentifierClaim));
+        }
+
+        if (!\is_string($idTokenClaims['sub'] ?? null) || '' === $idTokenClaims['sub']) {
+            throw new AuthenticationException('The "sub" claim is missing or invalid in the ID token.');
+        }
+        if ('userinfo' === $this->options['user_data_source']
+            && (!\is_string($claims['sub'] ?? null) || !hash_equals($idTokenClaims['sub'], $claims['sub']))
+        ) {
             throw new AuthenticationException('The "sub" claim from the UserInfo endpoint does not match the ID token.');
         }
 

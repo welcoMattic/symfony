@@ -34,6 +34,11 @@ class OidcLoginFactory extends AbstractFactory
 {
     public const PRIORITY = -25;
 
+    public function __construct()
+    {
+        $this->addOption('user_identifier_claim', 'sub');
+    }
+
     /**
      * @psalm-suppress ParamNameMismatch
      */
@@ -93,6 +98,11 @@ class OidcLoginFactory extends AbstractFactory
                 ->min(0)
                 ->info('Allowed clock skew in seconds when validating ID token time claims.')
             ->end()
+            ->enumNode('user_data_source')
+                ->values(['userinfo', 'id_token'])
+                ->defaultValue('userinfo')
+                ->info('Source of user claims: "userinfo" fetches from the UserInfo endpoint, "id_token" decodes claims from the ID token.')
+            ->end()
         ;
     }
 
@@ -150,6 +160,7 @@ class OidcLoginFactory extends AbstractFactory
         $options = array_intersect_key($config, $this->options);
         $options['firewall_name'] = $firewallName;
         $options['scope'] = $config['scope'];
+        $options['user_data_source'] = $config['user_data_source'];
 
         $container
             ->setDefinition($authenticatorId, new ChildDefinition('security.authenticator.oidc_login'))
