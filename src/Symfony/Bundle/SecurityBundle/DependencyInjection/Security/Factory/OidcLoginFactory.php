@@ -93,6 +93,14 @@ class OidcLoginFactory extends AbstractFactory
                 ->min(0)
                 ->info('Allowed clock skew in seconds when validating ID token time claims.')
             ->end()
+            ->booleanNode('enable_end_session')
+                ->defaultFalse()
+                ->info('Enable RP-Initiated Logout via the OIDC end_session_endpoint.')
+            ->end()
+            ->scalarNode('post_logout_redirect_path')
+                ->defaultValue('/')
+                ->info('Path or route to redirect to after OIDC logout.')
+            ->end()
         ;
     }
 
@@ -162,6 +170,16 @@ class OidcLoginFactory extends AbstractFactory
             ->replaceArgument(7, new Reference($this->createAuthenticationFailureHandler($container, $firewallName, $config)))
             ->replaceArgument(8, $options)
         ;
+
+        if ($config['enable_end_session']) {
+            $endSessionListenerId = 'security.authenticator.oidc_login.end_session_listener.'.$firewallName;
+            $container
+                ->setDefinition($endSessionListenerId, new ChildDefinition('security.authenticator.oidc_login.end_session_listener'))
+                ->replaceArgument(0, new Reference($discoveryId))
+                ->replaceArgument(2, $config['post_logout_redirect_path'])
+                ->addTag('kernel.event_subscriber', ['dispatcher' => 'security.event_dispatcher.'.$firewallName])
+            ;
+        }
 
         $callbackUris = $container->hasParameter('security.oidc_login.callback_uris') ? (array) $container->getParameter('security.oidc_login.callback_uris') : [];
         // a "check_path" holding a route name instead of a path gets no route declared

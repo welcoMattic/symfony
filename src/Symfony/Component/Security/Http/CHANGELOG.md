@@ -19,6 +19,7 @@ CHANGELOG
  * Add `OidcLoginAuthenticator` for the OpenID Connect Authorization Code Flow (interactive login via OIDC provider)
  * Add `OidcClient` and `OidcDiscovery` protocol classes
  * Cache the discovery document of the `oidc` access token handler for one hour, where it was fetched again on every refresh of the JWKS
+ * Add `OidcEndSessionListener` for RP-Initiated Logout via the OIDC `end_session_endpoint`
 
 8.1
 ---
